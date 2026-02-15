@@ -14,7 +14,7 @@ An opinionated tool for rapidly working in git worktrees. `gwt` works like `git 
   
   This command:
   - Switches to existing worktree if it exists
-  - Creates worktree for existing local branch
+  - Creates worktree for existing local branch (and runs post-create commands)
   - Auto-tracks remote branches (with --guess, enabled by default)
   - Shows helpful error if branch doesn't exist
   
@@ -182,7 +182,7 @@ post_create_commands = [
 #### Configuration Options
 
 - `default_repo`: Path to the git directory to use by default when `GWT_GIT_DIR` is not set
-- `repos.<git-dir>.post_create_commands`: List of shell commands to run after creating a new worktree. These commands run in the newly created worktree directory.
+- `repos.<git-dir>.post_create_commands`: List of shell commands to run after creating a new worktree. These commands run in the newly created worktree directory. Post-create commands run whenever `gwt switch` creates a worktree (for local branches, remote branches, or new branches with `-c`).
 
 The configuration file is created automatically when you first use the `gwt --repo` command. You can then edit it manually to add post-create commands or other settings.
 

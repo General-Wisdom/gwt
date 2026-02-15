@@ -17,7 +17,11 @@ from gwtlib.paths import get_main_worktree_path, get_worktree_base
 
 
 def create_worktree_for_branch(branch_name, git_dir, worktree_path):
-    """Create a worktree for an existing local branch."""
+    """Create a worktree for an existing local branch.
+
+    This creates the git worktree and then runs any post-create commands
+    configured for this repository (e.g., npm install, pip install).
+    """
     try:
         run_git_command(["worktree", "add", worktree_path, branch_name], git_dir)
         print(f"Created worktree at {worktree_path}", file=sys.stderr)
@@ -29,7 +33,11 @@ def create_worktree_for_branch(branch_name, git_dir, worktree_path):
 
 
 def create_tracking_worktree(branch_name, git_dir, remote_ref, worktree_path):
-    """Create a worktree that tracks a remote branch."""
+    """Create a worktree that tracks a remote branch.
+
+    This creates a local branch tracking the remote, creates the git worktree,
+    and then runs any post-create commands configured for this repository.
+    """
     try:
         # Create local branch tracking the remote
         run_git_command(
@@ -121,8 +129,13 @@ def switch_branch(branch_name, git_dir, create=False, force_create=False, guess=
             print("Use -C to force create", file=sys.stderr)
             sys.exit(1)
 
-    # Check if local branch exists
+    # Check if local branch exists - create worktree for it
+    # (this also runs any configured post-create commands)
     if branch_exists_locally(branch_name, git_dir):
+        print(
+            f"Branch '{branch_name}' exists locally but has no worktree. Creating worktree...",
+            file=sys.stderr,
+        )
         create_worktree_for_branch(branch_name, git_dir, worktree_path)
         return
 
