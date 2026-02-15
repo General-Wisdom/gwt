@@ -103,6 +103,7 @@ def can_delete_remote_branch(
 
     Returns:
         Tuple of (can_delete, error_message). If can_delete is True, error_message is empty.
+        Returns (True, "") if branch is already deleted (goal achieved).
     """
     try:
         # Use --dry-run to check without actually deleting
@@ -110,6 +111,9 @@ def can_delete_remote_branch(
         return (True, "")
     except subprocess.CalledProcessError as e:
         error_msg = e.stderr.strip() if e.stderr else str(e)
+        # "remote ref does not exist" means branch is already gone - that's fine
+        if "remote ref does not exist" in error_msg.lower():
+            return (True, "")
         return (False, error_msg)
 
 

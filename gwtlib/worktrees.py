@@ -232,27 +232,29 @@ def _preflight_check_removal(
     worktree_path: str,
     remote_name: Optional[str],
     check_remote: bool = True,
-) -> None:
-    """Run pre-flight checks before removal. Raises PreflightError on failure.
+) -> list:
+    """Run pre-flight checks before removal.
 
     Checks:
-    - Worktree is not dirty (uncommitted changes)
-    - Worktree is not locked
-    - Local branch exists
-    - Remote branch can be deleted (dry-run) if applicable
+    - Worktree is not locked (hard failure)
+    - Remote branch can be deleted (dry-run) if applicable (hard failure)
+
+    Returns list of warnings (e.g., dirty worktree, missing local branch).
+    Raises PreflightError for hard failures that should block removal.
     """
     errors = []
+    warnings = []
 
-    # Check worktree state
+    # Check worktree state - dirty is a warning, locked is an error
     if _is_worktree_dirty(worktree_path):
-        errors.append(f"Worktree has uncommitted changes: {worktree_path}")
+        warnings.append(f"Worktree has uncommitted changes: {worktree_path}")
 
     if _is_worktree_locked(worktree_path, git_dir):
         errors.append(f"Worktree is locked: {worktree_path}")
 
-    # Check local branch exists
+    # Missing local branch is OK - just skip that step
     if not branch_exists_locally(branch_name, git_dir):
-        errors.append(f"Local branch '{branch_name}' does not exist")
+        warnings.append(f"Local branch '{branch_name}' does not exist (will skip)")
 
     # Check remote deletion is possible (dry-run)
     if check_remote and remote_name:
@@ -266,6 +268,8 @@ def _preflight_check_removal(
 
     if errors:
         raise PreflightError("\n".join(errors))
+
+    return warnings
 
 
 def remove_worktree(branch_name: str, git_dir: str) -> None:
@@ -391,15 +395,23 @@ def _remove_all(
     """
     # Pre-flight checks - verify everything before deleting anything
     try:
-        _preflight_check_removal(
+        warnings = _preflight_check_removal(
             branch_name, git_dir, worktree_path, remote_name, check_remote=True
         )
     except PreflightError as e:
-        print(f"Pre-flight check failed:\n{e}", file=sys.stderr)
+        print(f"Cannot proceed:\n{e}", file=sys.stderr)
         print(
             "\nNo changes were made. Fix the issues above and retry.", file=sys.stderr
         )
         sys.exit(1)
+
+    # Show warnings and confirm if needed
+    if warnings:
+        for warning in warnings:
+            print(f"Warning: {warning}", file=sys.stderr)
+        if not prompt_yes_no("Continue anyway?"):
+            print("Aborted. No changes were made.", file=sys.stderr)
+            sys.exit(0)
 
     if safe_dir:
         print(
@@ -433,14 +445,18 @@ def _remove_all(
                 else:
                     raise RuntimeError(f"Failed to delete remote branch: {error_msg}")
 
-        # Step 2: Delete local branch
-        try:
-            run_git_command(["branch", "-D", branch_name], git_dir, capture=False)
-            print(f"Deleted local branch '{branch_name}'", file=sys.stderr)
+        # Step 2: Delete local branch (skip if doesn't exist)
+        if branch_exists_locally(branch_name, git_dir):
+            try:
+                run_git_command(["branch", "-D", branch_name], git_dir, capture=False)
+                print(f"Deleted local branch '{branch_name}'", file=sys.stderr)
+                deleted_local = True
+            except subprocess.CalledProcessError as e:
+                error_msg = e.stderr.strip() if e.stderr else str(e)
+                raise RuntimeError(f"Failed to delete local branch: {error_msg}")
+        else:
+            print(f"Local branch '{branch_name}' already deleted", file=sys.stderr)
             deleted_local = True
-        except subprocess.CalledProcessError as e:
-            error_msg = e.stderr.strip() if e.stderr else str(e)
-            raise RuntimeError(f"Failed to delete local branch: {error_msg}")
 
         # Step 3: Remove worktree (need to cd out first if we're in it)
         if safe_dir:
