@@ -122,7 +122,7 @@ def test_cli_remove_flow(tmp_path, git_env):
             text=True,
         )
         assert res.returncode == 0
-        assert "removed" in res.stdout or "removed" in res.stderr
+        assert "removed" in res.stdout.lower() or "removed" in res.stderr.lower()
     finally:
         os.chdir(original_dir)
 

@@ -16,12 +16,14 @@ from gwtlib.api import (
     branch_exists_locally,
     create_worktree_for_branch,
     get_main_worktree_path,
+    get_remote_tracking_branch,
     get_worktree_base,
     get_worktree_list,
     is_path_current_worktree,
     parse_worktree_legacy,
     parse_worktree_porcelain,
     rel_display_path,
+    remote_branch_exists,
 )
 from gwtlib.cli import main  # CLI entrypoint
 
@@ -34,6 +36,8 @@ __all__ = [
     "rel_display_path",
     "create_worktree_for_branch",
     "branch_exists_locally",
+    "get_remote_tracking_branch",
+    "remote_branch_exists",
     "parse_worktree_porcelain",
     "parse_worktree_legacy",
     "get_worktree_list",

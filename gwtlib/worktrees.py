@@ -7,10 +7,15 @@ from typing import Optional
 
 from gwtlib.branches import (
     branch_exists_locally,
+    delete_remote_branch,
     find_remote_branch,
     get_main_branch_name,
+    get_pr_state,
+    get_remote_tracking_branch,
+    remote_branch_exists,
 )
 from gwtlib.config import get_repo_config
+from gwtlib.display import prompt_yes_no
 from gwtlib.git_ops import run_git_command
 from gwtlib.parsing import get_worktree_list
 from gwtlib.paths import get_main_worktree_path, get_worktree_base
@@ -165,7 +170,43 @@ def switch_branch(branch_name, git_dir, create=False, force_create=False, guess=
     sys.exit(1)
 
 
+def _get_safe_dir_if_needed(worktree_path: str, git_dir: str) -> Optional[str]:
+    """Check if we're in the worktree being removed, return safe dir if so.
+
+    Returns:
+        The safe directory to change to, or None if not needed.
+    """
+    current_dir = os.getcwd()
+    worktree_abs = os.path.abspath(worktree_path)
+    current_abs = os.path.abspath(current_dir)
+
+    if current_abs.startswith(worktree_abs + os.sep) or current_abs == worktree_abs:
+        git_dir_path = Path(git_dir).resolve()
+
+        if git_dir_path.name == ".git" and git_dir_path.is_dir():
+            # Non-bare repo: git_dir is /path/to/repo/.git
+            safe_dir = str(git_dir_path.parent)
+        else:
+            # Bare repo: git_dir is /path/to/repo.git
+            safe_dir = os.path.dirname(get_worktree_base(git_dir))
+
+        print(
+            f"You're in the worktree being removed. Will change to {safe_dir} after removal.",
+            file=sys.stderr,
+        )
+        return safe_dir
+    return None
+
+
 def remove_worktree(branch_name: str, git_dir: str) -> None:
+    """Remove a worktree and optionally its local and remote branches.
+
+    The behavior depends on the branch state:
+
+    1. PR is merged: Automatically removes worktree, local branch, and remote branch.
+    2. Branch not synced to remote: Removes worktree, prompts for local branch deletion.
+    3. Branch synced but PR not merged: Shows warning, prompts for each deletion.
+    """
     try:
         # Find the worktree path using our shared function
         worktrees = get_worktree_list(git_dir)
@@ -182,58 +223,185 @@ def remove_worktree(branch_name: str, git_dir: str) -> None:
                 f"Error: Worktree for branch '{branch_name}' not found", file=sys.stderr
             )
             sys.exit(1)
-        # Narrow type for static checkers and add runtime safety
         assert worktree_path is not None
 
-        # Check if we're currently in the worktree being removed
-        current_dir = os.getcwd()
-        worktree_abs = os.path.abspath(worktree_path)
-        current_abs = os.path.abspath(current_dir)
+        # Check if we need to change directory after removal
+        safe_dir = _get_safe_dir_if_needed(worktree_path, git_dir)
 
-        need_cd = False
-        if current_abs.startswith(worktree_abs + os.sep) or current_abs == worktree_abs:
-            need_cd = True
-            # Determine the safe directory based on repo type
-            git_dir_path = Path(git_dir).resolve()
+        # Determine branch state
+        remote_ref = get_remote_tracking_branch(branch_name, git_dir)
+        has_remote = remote_ref is not None and remote_branch_exists(
+            remote_ref, git_dir
+        )
 
-            if git_dir_path.name == ".git" and git_dir_path.is_dir():
-                # Non-bare repo: git_dir is /path/to/repo/.git
-                # Safe dir should be the repo itself: /path/to/repo
-                safe_dir = str(git_dir_path.parent)
-            else:
-                # Bare repo: git_dir is /path/to/repo.git
-                # Safe dir should be parent of .gwt: /path/to
-                safe_dir = os.path.dirname(get_worktree_base(git_dir))
+        # Parse remote info for deletion
+        remote_name: Optional[str] = None
+        if has_remote and remote_ref:
+            # remote_ref is like 'origin/branch-name'
+            parts = remote_ref.split("/", 1)
+            if len(parts) == 2:
+                remote_name = parts[0]
 
+        # Check PR state if branch has a remote
+        pr_state = None
+        pr_is_merged = False
+        if has_remote:
+            pr_info = get_pr_state(branch_name)
+            if pr_info:
+                pr_state, pr_is_merged = pr_info
+
+        # Determine removal strategy based on state
+        if pr_is_merged:
+            # Case 1: PR is merged - clean up everything automatically
             print(
-                f"You're in the worktree being removed. Will change to {safe_dir} after removal.",
+                f"PR for '{branch_name}' has been merged. Cleaning up...",
                 file=sys.stderr,
             )
+            _remove_all(
+                branch_name,
+                git_dir,
+                worktree_path,
+                safe_dir,
+                remote_name,
+            )
+        elif not has_remote:
+            # Case 2: Branch not synced to remote - current behavior
+            _remove_local_only(branch_name, git_dir, worktree_path, safe_dir)
+        else:
+            # Case 3: Branch synced to remote but PR not merged (or no PR)
+            if pr_state == "OPEN":
+                print(
+                    f"\nWARNING: PR for '{branch_name}' is still OPEN!",
+                    file=sys.stderr,
+                )
+            elif pr_state == "CLOSED":
+                print(
+                    f"\nWARNING: PR for '{branch_name}' was CLOSED (not merged).",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"\nWARNING: Branch '{branch_name}' is synced to remote.",
+                    file=sys.stderr,
+                )
+            print(
+                "Others may have access to this branch. Proceeding with caution.\n",
+                file=sys.stderr,
+            )
+            _remove_with_prompts(
+                branch_name,
+                git_dir,
+                worktree_path,
+                safe_dir,
+                remote_name,
+            )
 
-        # Remove the worktree (don't capture output as it might prompt the user)
-        run_git_command(["worktree", "remove", worktree_path], git_dir, capture=False)
-
-        # Then remove the branch if the user confirms
-        # Print to stderr and flush to ensure prompt is visible immediately
-        print(
-            f"Do you also want to delete the branch '{branch_name}'? (y/N): ",
-            end="",
-            file=sys.stderr,
-        )
-        sys.stderr.flush()
-        confirm = input()
-        if confirm.lower() == "y":
-            # Change to safe directory first if needed, before trying to delete branch
-            if need_cd:
-                os.chdir(safe_dir)
-            run_git_command(["branch", "-D", branch_name], git_dir, capture=False)
-            print(f"Branch '{branch_name}' has been deleted")
-
-        print(f"Worktree for '{branch_name}' has been removed")
-
-        # Output the cd command for the shell to execute if we were in the removed worktree
-        if need_cd:
-            print(f"cd {safe_dir}")
     except subprocess.CalledProcessError as e:
         print(f"Error removing worktree: {e}", file=sys.stderr)
         sys.exit(1)
+
+
+def _remove_all(
+    branch_name: str,
+    git_dir: str,
+    worktree_path: str,
+    safe_dir: Optional[str],
+    remote_name: Optional[str],
+) -> None:
+    """Remove worktree, local branch, and remote branch without prompting."""
+    # Remove worktree
+    run_git_command(["worktree", "remove", worktree_path], git_dir, capture=False)
+    print(f"Removed worktree for '{branch_name}'", file=sys.stderr)
+
+    # Change to safe directory if needed before branch operations
+    if safe_dir:
+        os.chdir(safe_dir)
+
+    # Remove local branch
+    try:
+        run_git_command(["branch", "-D", branch_name], git_dir, capture=False)
+        print(f"Deleted local branch '{branch_name}'", file=sys.stderr)
+    except subprocess.CalledProcessError:
+        print(f"Note: Could not delete local branch '{branch_name}'", file=sys.stderr)
+
+    # Remove remote branch
+    if remote_name:
+        if delete_remote_branch(branch_name, remote_name, git_dir):
+            print(
+                f"Deleted remote branch '{remote_name}/{branch_name}'", file=sys.stderr
+            )
+        else:
+            print(
+                f"Note: Could not delete remote branch (may already be deleted)",
+                file=sys.stderr,
+            )
+
+    # Output cd command if needed
+    if safe_dir:
+        print(f"cd {safe_dir}")
+
+
+def _remove_local_only(
+    branch_name: str,
+    git_dir: str,
+    worktree_path: str,
+    safe_dir: Optional[str],
+) -> None:
+    """Remove worktree and prompt for local branch deletion (original behavior)."""
+    # Remove worktree
+    run_git_command(["worktree", "remove", worktree_path], git_dir, capture=False)
+    print(f"Removed worktree for '{branch_name}'", file=sys.stderr)
+
+    # Prompt for local branch deletion
+    if prompt_yes_no(f"Delete local branch '{branch_name}'?"):
+        if safe_dir:
+            os.chdir(safe_dir)
+        run_git_command(["branch", "-D", branch_name], git_dir, capture=False)
+        print(f"Deleted local branch '{branch_name}'", file=sys.stderr)
+
+    # Output cd command if needed
+    if safe_dir:
+        print(f"cd {safe_dir}")
+
+
+def _remove_with_prompts(
+    branch_name: str,
+    git_dir: str,
+    worktree_path: str,
+    safe_dir: Optional[str],
+    remote_name: Optional[str],
+) -> None:
+    """Remove with explicit prompts for each component."""
+    # Prompt for worktree removal
+    if not prompt_yes_no(f"Remove worktree for '{branch_name}'?"):
+        print("Aborted.", file=sys.stderr)
+        return
+
+    run_git_command(["worktree", "remove", worktree_path], git_dir, capture=False)
+    print(f"Removed worktree for '{branch_name}'", file=sys.stderr)
+
+    # Prompt for local branch deletion
+    delete_local = prompt_yes_no(f"Delete local branch '{branch_name}'?")
+    if delete_local:
+        if safe_dir:
+            os.chdir(safe_dir)
+        try:
+            run_git_command(["branch", "-D", branch_name], git_dir, capture=False)
+            print(f"Deleted local branch '{branch_name}'", file=sys.stderr)
+        except subprocess.CalledProcessError:
+            print(f"Note: Could not delete local branch", file=sys.stderr)
+
+    # Prompt for remote branch deletion
+    if remote_name:
+        if prompt_yes_no(f"Delete remote branch '{remote_name}/{branch_name}'?"):
+            if delete_remote_branch(branch_name, remote_name, git_dir):
+                print(
+                    f"Deleted remote branch '{remote_name}/{branch_name}'",
+                    file=sys.stderr,
+                )
+            else:
+                print(f"Note: Could not delete remote branch", file=sys.stderr)
+
+    # Output cd command if needed
+    if safe_dir:
+        print(f"cd {safe_dir}")

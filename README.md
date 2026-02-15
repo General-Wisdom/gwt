@@ -28,9 +28,16 @@ An opinionated tool for rapidly working in git worktrees. `gwt` works like `git 
   - `-C` or `--force-create`: Create branch, resetting if it exists
   - `--no-guess`: Disable remote branch auto-detection
 
-- Remove a worktree and optionally its branch
+- Remove a worktree and clean up branches
 
   `gwt remove branch-name` or `gwt rm branch-name`
+  
+  The behavior depends on the branch state:
+  - **PR merged**: Automatically removes worktree, local branch, and remote branch
+  - **Local only** (not pushed): Removes worktree, prompts for local branch deletion
+  - **Pushed but PR not merged**: Shows warning, prompts for each deletion
+  
+  This requires the `gh` CLI for PR status detection.
 
 - Switch to a different repo
 
@@ -225,11 +232,16 @@ Set the git directory for future commands:
 gwt --repo /path/to/another/repo.git
 ```
 
-Remove a worktree and optionally its branch:
+Remove a worktree and clean up branches:
 ```
 gwt remove branch-name
 gwt rm branch-name
 ```
+
+The removal behavior is context-aware:
+- If the PR has been merged, `gwt rm` automatically cleans up the worktree, local branch, and remote branch
+- If the branch was never pushed to a remote, it removes the worktree and prompts about the local branch
+- If the branch is pushed but the PR isn't merged, it warns you and prompts for confirmation before each deletion
 
 ## How it works
 

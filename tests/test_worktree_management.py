@@ -191,3 +191,128 @@ def test_list_worktrees_empty_when_none_exist(tmp_path, git_env):
         assert res.stdout.strip() == ""  # Empty output
     finally:
         os.chdir(original_dir)
+
+
+def _init_bare_repo(bare_path: Path):
+    """Initialize a bare repository."""
+    subprocess.run(
+        ["git", "init", "--bare", str(bare_path)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def _init_repo_with_remote(repo: Path, remote_path: Path):
+    """Initialize a repo and add a local bare repo as 'origin'."""
+    _init_repo(repo)
+    subprocess.run(
+        ["git", "-C", str(repo), "remote", "add", "origin", str(remote_path)],
+        check=True,
+    )
+
+
+def _get_current_branch(repo: Path) -> str:
+    """Get the current branch name."""
+    result = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "--abbrev-ref", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def test_get_remote_tracking_branch(tmp_path):
+    """Test get_remote_tracking_branch returns correct tracking ref."""
+    # Create a bare repo to act as "origin"
+    bare = tmp_path / "origin.git"
+    _init_bare_repo(bare)
+
+    # Create working repo with origin pointing to bare repo
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo_with_remote(repo, bare)
+    git_dir = str(repo / ".git")
+
+    # Get the default branch name (may be main or master)
+    default_branch = _get_current_branch(repo)
+
+    # Push default branch to origin to establish remote
+    subprocess.run(
+        ["git", "-C", str(repo), "push", "-u", "origin", default_branch],
+        check=True,
+        capture_output=True,
+    )
+
+    # Create and push a feature branch with tracking
+    subprocess.run(["git", "-C", str(repo), "branch", "feature"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "push", "-u", "origin", "feature"],
+        check=True,
+        capture_output=True,
+    )
+
+    # Test: feature branch should track origin/feature
+    tracking = gwt.get_remote_tracking_branch("feature", git_dir)
+    assert tracking == "origin/feature"
+
+    # Test: non-tracking branch returns None
+    subprocess.run(["git", "-C", str(repo), "branch", "local-only"], check=True)
+    tracking = gwt.get_remote_tracking_branch("local-only", git_dir)
+    assert tracking is None
+
+    # Test: non-existent branch returns None
+    tracking = gwt.get_remote_tracking_branch("does-not-exist", git_dir)
+    assert tracking is None
+
+
+def test_remote_branch_exists(tmp_path):
+    """Test remote_branch_exists correctly detects remote branches."""
+    # Create a bare repo to act as "origin"
+    bare = tmp_path / "origin.git"
+    _init_bare_repo(bare)
+
+    # Create working repo with origin pointing to bare repo
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo_with_remote(repo, bare)
+    git_dir = str(repo / ".git")
+
+    # Get the default branch name (may be main or master)
+    default_branch = _get_current_branch(repo)
+
+    # Push default branch to origin
+    subprocess.run(
+        ["git", "-C", str(repo), "push", "-u", "origin", default_branch],
+        check=True,
+        capture_output=True,
+    )
+
+    # Fetch to ensure refs/remotes/origin/<default> exists locally
+    subprocess.run(
+        ["git", "-C", str(repo), "fetch", "origin"],
+        check=True,
+        capture_output=True,
+    )
+
+    # Test: origin/<default_branch> should exist
+    assert gwt.remote_branch_exists(f"origin/{default_branch}", git_dir) is True
+
+    # Test: origin/nonexistent should not exist
+    assert gwt.remote_branch_exists("origin/nonexistent", git_dir) is False
+
+    # Push a feature branch and verify it exists
+    subprocess.run(["git", "-C", str(repo), "branch", "feature"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "push", "origin", "feature"],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo), "fetch", "origin"],
+        check=True,
+        capture_output=True,
+    )
+
+    assert gwt.remote_branch_exists("origin/feature", git_dir) is True

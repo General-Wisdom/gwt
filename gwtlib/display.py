@@ -19,6 +19,25 @@ class ColorMode:
     NEVER = "never"
 
 
+def prompt_yes_no(prompt: str, default: bool = False) -> bool:
+    """Prompt the user for a yes/no confirmation.
+
+    Args:
+        prompt: The prompt message (without the y/N suffix)
+        default: The default value if user just presses Enter
+
+    Returns:
+        True for yes, False for no
+    """
+    suffix = "(Y/n)" if default else "(y/N)"
+    print(f"{prompt} {suffix}: ", end="", file=sys.stderr)
+    sys.stderr.flush()
+    response = input().strip().lower()
+    if not response:
+        return default
+    return response in ("y", "yes")
+
+
 def format_worktree_rows(
     entries, git_dir, show_status=False, color_mode="auto", force_absolute=False
 ):
@@ -284,7 +303,7 @@ def list_all_branches(git_dir, mode="all", annotate=None):
             result = run_git_command(
                 ["for-each-ref", "--format=%(refname:short)", "refs/heads/"], git_dir
             )
-            for branch in result.stdout.strip().split('\n'):
+            for branch in result.stdout.strip().split("\n"):
                 if branch:
                     branches.add(branch)
         except Exception:
@@ -296,10 +315,10 @@ def list_all_branches(git_dir, mode="all", annotate=None):
             result = run_git_command(
                 ["for-each-ref", "--format=%(refname:short)", "refs/remotes/"], git_dir
             )
-            for ref in result.stdout.strip().split('\n'):
-                if ref and '/' in ref:
+            for ref in result.stdout.strip().split("\n"):
+                if ref and "/" in ref:
                     # Extract branch name from remote/branch
-                    branch = ref.split('/', 1)[1]
+                    branch = ref.split("/", 1)[1]
                     branches.add(branch)
         except Exception:
             pass
@@ -317,7 +336,7 @@ def list_all_branches(git_dir, mode="all", annotate=None):
         result = run_git_command(
             ["for-each-ref", "--format=%(refname:short)", "refs/heads/"], git_dir
         )
-        for branch in result.stdout.strip().split('\n'):
+        for branch in result.stdout.strip().split("\n"):
             if branch:
                 local_branches.add(branch)
     except Exception:
