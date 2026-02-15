@@ -91,7 +91,31 @@ def remote_branch_exists(remote_ref: str, git_dir: str) -> bool:
         return False
 
 
-def delete_remote_branch(branch_name: str, remote: str, git_dir: str) -> bool:
+def can_delete_remote_branch(
+    branch_name: str, remote: str, git_dir: str
+) -> Tuple[bool, str]:
+    """Check if we can delete a remote branch (dry-run).
+
+    Args:
+        branch_name: The branch name (without remote prefix)
+        remote: The remote name (e.g., 'origin')
+        git_dir: Path to git directory
+
+    Returns:
+        Tuple of (can_delete, error_message). If can_delete is True, error_message is empty.
+    """
+    try:
+        # Use --dry-run to check without actually deleting
+        run_git_quiet(["push", "--dry-run", remote, "--delete", branch_name], git_dir)
+        return (True, "")
+    except subprocess.CalledProcessError as e:
+        error_msg = e.stderr.strip() if e.stderr else str(e)
+        return (False, error_msg)
+
+
+def delete_remote_branch(
+    branch_name: str, remote: str, git_dir: str
+) -> Tuple[bool, str]:
     """Delete a branch from a remote.
 
     Args:
@@ -100,13 +124,14 @@ def delete_remote_branch(branch_name: str, remote: str, git_dir: str) -> bool:
         git_dir: Path to git directory
 
     Returns:
-        True if deletion succeeded, False otherwise
+        Tuple of (success, error_message). If success is True, error_message is empty.
     """
     try:
         run_git_command(["push", remote, "--delete", branch_name], git_dir)
-        return True
-    except subprocess.CalledProcessError:
-        return False
+        return (True, "")
+    except subprocess.CalledProcessError as e:
+        error_msg = e.stderr.strip() if e.stderr else str(e)
+        return (False, error_msg)
 
 
 def get_pr_state(branch_name: str) -> Optional[Tuple[str, bool]]:
