@@ -6,7 +6,7 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass
-from typing import Any, List, Optional
+from typing import List, Optional
 
 try:
     from tqdm import tqdm
@@ -368,7 +368,7 @@ def execute_gc_plan(
         for wt in plan.to_clean:
             print(f"\n{wt.branch}:", file=sys.stderr)
             if dry_run:
-                print(f"  Would run clean command", file=sys.stderr)
+                print("  Would run clean command", file=sys.stderr)
             else:
                 run_clean_command(wt.path, git_dir, clean_cmd)
 
@@ -378,7 +378,7 @@ def execute_gc_plan(
         for wt in plan.to_delete:
             print(f"\n{wt.branch}:", file=sys.stderr)
             if dry_run:
-                print(f"  Would remove worktree", file=sys.stderr)
+                print("  Would remove worktree", file=sys.stderr)
             else:
                 try:
                     # Use git worktree remove directly since we know it's clean
@@ -387,7 +387,7 @@ def execute_gc_plan(
                         git_dir,
                         capture=False,
                     )
-                    print(f"  Removed worktree", file=sys.stderr)
+                    print("  Removed worktree", file=sys.stderr)
 
                     # Also delete the local branch
                     try:

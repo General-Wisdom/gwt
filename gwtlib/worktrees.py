@@ -575,7 +575,6 @@ def _remove_with_prompts(
         )
 
     # Step 1: Remote branch (prompted)
-    delete_remote = False
     if remote_name:
         if prompt_yes_no(f"Delete remote branch '{remote_name}/{branch_name}'?"):
             # Pre-check before committing
@@ -596,19 +595,16 @@ def _remove_with_prompts(
                         f"Deleted remote branch '{remote_name}/{branch_name}'",
                         file=sys.stderr,
                     )
-                    delete_remote = True
                 else:
                     print(
                         f"Failed to delete remote branch: {error_msg}", file=sys.stderr
                     )
 
     # Step 2: Local branch (prompted)
-    delete_local = False
     if prompt_yes_no(f"Delete local branch '{branch_name}'?"):
         try:
             run_git_command(["branch", "-D", branch_name], git_dir, capture=False)
             print(f"Deleted local branch '{branch_name}'", file=sys.stderr)
-            delete_local = True
         except subprocess.CalledProcessError as e:
             error_msg = e.stderr.strip() if e.stderr else str(e)
             print(f"Failed to delete local branch: {error_msg}", file=sys.stderr)
