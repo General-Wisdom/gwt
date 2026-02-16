@@ -46,7 +46,7 @@ def _is_branch_merged_to_main(branch_name: str, git_dir: str) -> bool:
         return False
 
 
-# Default thresholds in seconds
+# Default thresholds
 CLEAN_THRESHOLD_DAYS = 7
 DELETE_THRESHOLD_DAYS = 28
 
