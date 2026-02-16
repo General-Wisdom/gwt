@@ -12,6 +12,9 @@ from gwtlib.worktrees import remove_worktree, switch_branch
 
 def main():
     parser = argparse.ArgumentParser(description="Git worktree wrapper")
+    # NOTE: When adding new subcommands, also update the completion lists in:
+    #   - gwt.sh   (commands="...")
+    #   - gwt.fish (set -l commands ...)
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
     # Create a 'repo' subcommand
