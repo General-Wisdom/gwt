@@ -17,25 +17,10 @@ except ImportError:
     tqdm = None  # type: ignore
 
 from gwtlib.config import get_repo_config
-from gwtlib.display import prompt_yes_no
-from gwtlib.git_ops import run_git_command, run_git_quiet
-from gwtlib.parsing import get_worktree_list
+from gwtlib.git_ops import is_worktree_dirty, run_git_command, run_git_quiet
+from gwtlib.parsing import get_main_branch_name, get_worktree_list
 from gwtlib.paths import rel_display_path
-from gwtlib.worktrees import _is_worktree_dirty
-
-
-def _get_main_branch_name_quiet(git_dir: str) -> Optional[str]:
-    """Get main branch name without printing output."""
-    try:
-        result = run_git_quiet(["worktree", "list"], git_dir)
-        lines = result.stdout.splitlines()
-        if lines:
-            parts = lines[0].split()
-            if len(parts) >= 3:
-                return parts[2].strip("[]")
-    except subprocess.CalledProcessError:
-        pass
-    return None
+from gwtlib.ui import prompt_yes_no
 
 
 def _is_branch_merged_to_main(branch_name: str, git_dir: str) -> bool:
@@ -43,7 +28,7 @@ def _is_branch_merged_to_main(branch_name: str, git_dir: str) -> bool:
 
     Returns True if all commits in the branch are also in main.
     """
-    main_branch = _get_main_branch_name_quiet(git_dir)
+    main_branch = get_main_branch_name(git_dir)
     if not main_branch:
         # Can't determine main branch, assume not merged to be safe
         return False
@@ -159,7 +144,7 @@ def get_worktree_info_list(
             branch=branch,
             mtime=mtime,
             age_days=age_days,
-            is_dirty=_is_worktree_dirty(path),
+            is_dirty=is_worktree_dirty(path),
             is_merged=_is_branch_merged_to_main(branch, git_dir),
             is_main=wt.get("is_main", False),
         )

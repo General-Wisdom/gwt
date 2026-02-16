@@ -4,7 +4,7 @@ import shutil
 import subprocess
 import sys
 
-from gwtlib.git_ops import run_git_command, run_git_in_worktree, run_git_quiet
+from gwtlib.git_ops import is_worktree_dirty, run_git_command, run_git_quiet
 from gwtlib.parsing import (
     get_worktree_list,
     parse_worktree_legacy,
@@ -17,25 +17,6 @@ class ColorMode:
     AUTO = "auto"
     ALWAYS = "always"
     NEVER = "never"
-
-
-def prompt_yes_no(prompt: str, default: bool = False) -> bool:
-    """Prompt the user for a yes/no confirmation.
-
-    Args:
-        prompt: The prompt message (without the y/N suffix)
-        default: The default value if user just presses Enter
-
-    Returns:
-        True for yes, False for no
-    """
-    suffix = "(Y/n)" if default else "(y/N)"
-    print(f"{prompt} {suffix}: ", end="", file=sys.stderr)
-    sys.stderr.flush()
-    response = input().strip().lower()
-    if not response:
-        return default
-    return response in ("y", "yes")
 
 
 def format_worktree_rows(
@@ -67,11 +48,7 @@ def format_worktree_rows(
     def is_dirty(path):
         if not show_status:
             return False
-        try:
-            r = run_git_in_worktree(["status", "--porcelain", "-uno"], path)
-            return bool(r.stdout.strip())
-        except subprocess.CalledProcessError:
-            return False
+        return is_worktree_dirty(path, include_untracked=False)
 
     # Sorting: current first, main second, others by branch (case-insensitive)
     def sort_key(e):
@@ -252,19 +229,6 @@ def list_all_branches(git_dir, mode="all", annotate=None):
         mode: "all", "local", "worktrees"
         annotate: None | "bash" | "fish"
     """
-    branches = set()
-
-    # Collect worktree branches (exclude main for worktrees mode)
-    if mode in ["all", "worktrees"]:
-        include_main_wt = mode == "all"
-        worktrees = get_worktree_list(
-            git_dir, include_main=include_main_wt, warnings=[]
-        )
-        wt_branches = []
-        for wt in worktrees:
-            if wt["branch"]:
-                branches.add(wt["branch"])
-                wt_branches.append(wt["branch"])
 
     # Helper function to print branch with annotation
     def print_branch(b, kind):
@@ -291,23 +255,35 @@ def list_all_branches(git_dir, mode="all", annotate=None):
         else:
             print(b)
 
+    # Get worktree branches (always needed for categorization)
+    worktree_branches = {
+        wt["branch"]
+        for wt in get_worktree_list(git_dir, include_main=True, warnings=[])
+        if wt.get("branch")
+    }
+
+    # For worktrees mode, just print worktree branches (excluding main)
     if mode == "worktrees":
-        # Only print worktree branch names (excluding main)
+        worktrees = get_worktree_list(git_dir, include_main=False, warnings=[])
+        wt_branches = [wt["branch"] for wt in worktrees if wt.get("branch")]
         for b in sorted(wt_branches):
             print_branch(b, "worktree")
         return
 
-    # Add local branches
-    if mode in ["all", "local"]:
-        try:
-            result = run_git_command(
-                ["for-each-ref", "--format=%(refname:short)", "refs/heads/"], git_dir
-            )
-            for branch in result.stdout.strip().split("\n"):
-                if branch:
-                    branches.add(branch)
-        except Exception:
-            pass
+    # Get local branches (single fetch, used for both collection and categorization)
+    local_branches = set()
+    try:
+        result = run_git_command(
+            ["for-each-ref", "--format=%(refname:short)", "refs/heads/"], git_dir
+        )
+        for branch in result.stdout.strip().split("\n"):
+            if branch:
+                local_branches.add(branch)
+    except Exception:
+        pass
+
+    # Collect all branches
+    branches = set(local_branches)
 
     # Add remote branches (without remote prefix for completion)
     if mode == "all":
@@ -322,25 +298,6 @@ def list_all_branches(git_dir, mode="all", annotate=None):
                     branches.add(branch)
         except Exception:
             pass
-
-    # Get branch categories for proper ordering (include main for mode="all")
-    worktree_branches = {
-        wt["branch"]
-        for wt in get_worktree_list(git_dir, include_main=True, warnings=[])
-        if wt.get("branch")
-    }
-
-    # Get local branches
-    local_branches = set()
-    try:
-        result = run_git_command(
-            ["for-each-ref", "--format=%(refname:short)", "refs/heads/"], git_dir
-        )
-        for branch in result.stdout.strip().split("\n"):
-            if branch:
-                local_branches.add(branch)
-    except Exception:
-        pass
 
     # Categorize branches
     worktree_list = sorted([b for b in branches if b in worktree_branches])

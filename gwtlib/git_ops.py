@@ -3,6 +3,27 @@ import subprocess
 import sys
 
 
+def is_worktree_dirty(worktree_path: str, include_untracked: bool = True) -> bool:
+    """Check if worktree has uncommitted changes.
+
+    Args:
+        worktree_path: Path to the worktree directory.
+        include_untracked: If True, include untracked files in the check.
+                          If False, only check tracked files (uses -uno flag).
+
+    Returns:
+        True if the worktree has uncommitted changes, False otherwise.
+    """
+    try:
+        cmd = ["git", "-C", worktree_path, "status", "--porcelain"]
+        if not include_untracked:
+            cmd.append("-uno")
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        return bool(result.stdout.strip())
+    except subprocess.CalledProcessError:
+        return False
+
+
 def run_git_command(cmd_args, git_dir, capture=True):
     """Execute git commands with specified git directory."""
     cmd = ["git", f"--git-dir={git_dir}"] + cmd_args

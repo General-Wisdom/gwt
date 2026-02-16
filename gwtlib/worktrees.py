@@ -10,17 +10,15 @@ from gwtlib.branches import (
     can_delete_remote_branch,
     delete_remote_branch,
     find_remote_branch,
-    get_main_branch_name,
-    get_pr_state,
     get_remote_tracking_branch,
     remote_branch_exists,
 )
-from gwtlib.git_ops import run_git_in_worktree
 from gwtlib.config import get_repo_config
-from gwtlib.display import prompt_yes_no
-from gwtlib.git_ops import run_git_command
-from gwtlib.parsing import get_worktree_list
+from gwtlib.git_ops import is_worktree_dirty, run_git_command
+from gwtlib.github import get_pr_state
+from gwtlib.parsing import get_main_branch_name, get_worktree_list
 from gwtlib.paths import get_main_worktree_path, get_worktree_base
+from gwtlib.ui import prompt_yes_no
 
 
 def create_worktree_for_branch(branch_name, git_dir, worktree_path):
@@ -196,15 +194,6 @@ def _get_safe_dir_if_needed(worktree_path: str, git_dir: str) -> Optional[str]:
     return None
 
 
-def _is_worktree_dirty(worktree_path: str) -> bool:
-    """Check if worktree has uncommitted changes."""
-    try:
-        result = run_git_in_worktree(["status", "--porcelain"], worktree_path)
-        return bool(result.stdout.strip())
-    except subprocess.CalledProcessError:
-        return False
-
-
 def _is_worktree_locked(worktree_path: str, git_dir: str) -> bool:
     """Check if worktree is locked."""
     try:
@@ -246,7 +235,7 @@ def _preflight_check_removal(
     warnings = []
 
     # Check worktree state - dirty is a warning, locked is an error
-    if _is_worktree_dirty(worktree_path):
+    if is_worktree_dirty(worktree_path):
         warnings.append(f"Worktree has uncommitted changes: {worktree_path}")
 
     if _is_worktree_locked(worktree_path, git_dir):
@@ -499,7 +488,7 @@ def _remove_local_only(
     Order: local branch -> worktree (for best-effort atomicity).
     """
     # Check for dirty worktree upfront
-    if _is_worktree_dirty(worktree_path):
+    if is_worktree_dirty(worktree_path):
         print(
             f"WARNING: Worktree has uncommitted changes: {worktree_path}",
             file=sys.stderr,
@@ -563,7 +552,7 @@ def _remove_with_prompts(
     print("", file=sys.stderr)
 
     # Check for dirty worktree upfront
-    if _is_worktree_dirty(worktree_path):
+    if is_worktree_dirty(worktree_path):
         print(
             f"WARNING: Worktree has uncommitted changes: {worktree_path}",
             file=sys.stderr,

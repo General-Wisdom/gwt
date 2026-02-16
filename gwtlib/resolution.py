@@ -5,7 +5,15 @@ from typing import Optional
 
 from gwtlib.config import HAS_TOML, load_config
 from gwtlib.git_ops import run_git_simple
-from gwtlib.paths import _normalize_repo_path
+
+
+def _normalize_repo_path(p: str) -> str:
+    """Auto-append .git for non-bare repositories when given a repo root directory."""
+    if os.path.isdir(p):
+        dot_git = os.path.join(p, ".git")
+        if os.path.isdir(dot_git):
+            return dot_git
+    return p
 
 
 def auto_detect_git_dir(cwd: Optional[str] = None) -> Optional[str]:

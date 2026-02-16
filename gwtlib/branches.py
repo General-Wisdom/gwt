@@ -5,20 +5,6 @@ from typing import Optional, Tuple
 from gwtlib.git_ops import run_git_command, run_git_quiet
 
 
-def get_main_branch_name(git_dir):
-    """Extract the main branch name from git worktree list."""
-    try:
-        result = run_git_command(["worktree", "list"], git_dir)
-        lines = result.stdout.splitlines()
-        if lines:
-            parts = lines[0].split()
-            if len(parts) >= 3:
-                return parts[2].strip("[]")
-    except Exception:
-        pass
-    return None
-
-
 def branch_exists_locally(branch_name, git_dir):
     """Check if a branch exists locally via git rev-parse."""
     try:
@@ -136,34 +122,3 @@ def delete_remote_branch(
     except subprocess.CalledProcessError as e:
         error_msg = e.stderr.strip() if e.stderr else str(e)
         return (False, error_msg)
-
-
-def get_pr_state(branch_name: str) -> Optional[Tuple[str, bool]]:
-    """Check the PR state for a branch using GitHub CLI.
-
-    Returns:
-        Tuple of (state, is_merged) where state is 'OPEN', 'CLOSED', or 'MERGED',
-        or None if no PR exists or gh CLI is not available.
-
-    Note: This uses the gh CLI and works in any directory with a GitHub remote.
-    """
-    try:
-        # Use gh pr view to get PR info for this branch
-        result = subprocess.run(
-            ["gh", "pr", "view", branch_name, "--json", "state,mergedAt"],
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            return None
-
-        import json
-
-        data = json.loads(result.stdout)
-        state = data.get("state", "UNKNOWN")
-        merged_at = data.get("mergedAt")
-        is_merged = merged_at is not None
-
-        return (state, is_merged)
-    except (subprocess.CalledProcessError, FileNotFoundError, json.JSONDecodeError):
-        return None

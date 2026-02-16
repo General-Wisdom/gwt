@@ -6,6 +6,7 @@ from gwtlib.branches import (
 )
 from gwtlib.display import ColorMode
 from gwtlib.parsing import (
+    get_main_branch_name,
     get_worktree_list,
     parse_worktree_legacy,
     parse_worktree_porcelain,
@@ -35,6 +36,7 @@ __all__ = [
     "parse_worktree_porcelain",
     "parse_worktree_legacy",
     "get_worktree_list",
+    "get_main_branch_name",
     # resolution
     "auto_detect_git_dir",
     # display
