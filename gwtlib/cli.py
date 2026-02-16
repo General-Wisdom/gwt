@@ -5,6 +5,7 @@ import sys
 
 from gwtlib.config import HAS_TOML, get_config_path, load_config, save_config
 from gwtlib.display import list_all_branches, list_worktrees
+from gwtlib.gc import gc_worktrees
 from gwtlib.resolution import get_git_dir, get_git_dir_with_source
 from gwtlib.worktrees import remove_worktree, switch_branch
 
@@ -100,6 +101,41 @@ def main():
     # Special command to get the default repository from config
     _get_repo_parser = subparsers.add_parser(
         "get-repo", help="Get the default repository from config (internal use)"
+    )
+
+    # Create a 'gc' subcommand for garbage collection
+    gc_parser = subparsers.add_parser(
+        "gc", help="Clean up stale worktrees (garbage collect)"
+    )
+    gc_parser.add_argument(
+        "--clean-days",
+        type=int,
+        default=7,
+        help="Days before a worktree is marked for cleaning (default: 7)",
+    )
+    gc_parser.add_argument(
+        "--delete-days",
+        type=int,
+        default=28,
+        help="Days before a worktree is marked for deletion (default: 28)",
+    )
+    gc_parser.add_argument(
+        "--clean-cmd",
+        type=str,
+        default=None,
+        help="Command to run for cleaning (default: 'just clean')",
+    )
+    gc_parser.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompt",
+    )
+    gc_parser.add_argument(
+        "-p",
+        "--plan",
+        action="store_true",
+        help="Show plan only, don't execute",
     )
 
     args = parser.parse_args()
@@ -240,3 +276,12 @@ def main():
                 color=getattr(args, "color", "auto"),
                 absolute=getattr(args, "absolute", False),
             )
+    elif args.command == "gc":
+        gc_worktrees(
+            git_dir,
+            clean_days=getattr(args, "clean_days", 7),
+            delete_days=getattr(args, "delete_days", 28),
+            clean_cmd=getattr(args, "clean_cmd", None),
+            yes=getattr(args, "yes", False),
+            plan_only=getattr(args, "plan", False),
+        )
