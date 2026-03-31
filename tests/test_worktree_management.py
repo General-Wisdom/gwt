@@ -73,34 +73,30 @@ def test_parse_worktree_legacy(monkeypatch, tmp_path):
     assert entries[2]["detached"]
 
 
-def _init_repo(repo: Path):
+def _init_repo(repo: Path, env: dict):
     subprocess.run(
-        ["git", "init", str(repo)], check=True, capture_output=True, text=True
-    )
-    # Configure identity for commits
-    subprocess.run(
-        ["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True
-    )
-    subprocess.run(
-        ["git", "-C", str(repo), "config", "user.name", "Test User"], check=True
+        ["git", "init", str(repo)], env=env, check=True, capture_output=True, text=True
     )
     # Initial empty commit
     subprocess.run(
         ["git", "-C", str(repo), "commit", "--allow-empty", "-m", "init"],
+        env=env,
         check=True,
         capture_output=True,
         text=True,
     )
 
 
-def test_branch_exists_locally_and_worktree_listing(tmp_path):
+def test_branch_exists_locally_and_worktree_listing(tmp_path, git_env):
     repo = tmp_path / "repo"
     repo.mkdir()
-    _init_repo(repo)
+    _init_repo(repo, git_env)
     git_dir = str(repo / ".git")
 
     # Create a new branch
-    subprocess.run(["git", "-C", str(repo), "branch", "feature"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "branch", "feature"], env=git_env, check=True
+    )
 
     assert gwt.branch_exists_locally("feature", git_dir)
     assert not gwt.branch_exists_locally("nope", git_dir)
@@ -116,17 +112,19 @@ def test_branch_exists_locally_and_worktree_listing(tmp_path):
     assert "feature" in branches
 
 
-def test_list_worktrees_excludes_main(tmp_path):
+def test_list_worktrees_excludes_main(tmp_path, git_env):
     """Test that list --branches worktrees excludes main branch."""
     import sys
 
     repo = tmp_path / "repo"
     repo.mkdir()
-    _init_repo(repo)
+    _init_repo(repo, git_env)
     git_dir = str(repo / ".git")
 
     # Create a worktree branch
-    subprocess.run(["git", "-C", str(repo), "branch", "feature"], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "branch", "feature"], env=git_env, check=True
+    )
 
     wt_base = gwt.get_worktree_base(git_dir)
     wt_path = os.path.join(wt_base, "feature")
@@ -138,7 +136,7 @@ def test_list_worktrees_excludes_main(tmp_path):
 
     # Get absolute path to gwt.py
     gwt_script = Path(__file__).parent.parent / "gwt.py"
-    env = os.environ.copy()
+    env = git_env.copy()
     env["GWT_GIT_DIR"] = git_dir
     env["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
 
@@ -160,13 +158,13 @@ def test_list_worktrees_excludes_main(tmp_path):
         os.chdir(original_dir)
 
 
-def test_list_worktrees_empty_when_none_exist(tmp_path):
+def test_list_worktrees_empty_when_none_exist(tmp_path, git_env):
     """Test that list --branches worktrees returns empty when no worktrees."""
     import sys
 
     repo = tmp_path / "repo"
     repo.mkdir()
-    _init_repo(repo)
+    _init_repo(repo, git_env)
     git_dir = str(repo / ".git")
 
     # Run from outside any git repo to avoid auto-detection interference
@@ -175,7 +173,7 @@ def test_list_worktrees_empty_when_none_exist(tmp_path):
 
     # Get absolute path to gwt.py
     gwt_script = Path(__file__).parent.parent / "gwt.py"
-    env = os.environ.copy()
+    env = git_env.copy()
     env["GWT_GIT_DIR"] = git_dir
     env["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
 
