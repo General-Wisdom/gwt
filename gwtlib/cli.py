@@ -38,8 +38,6 @@ def main():
     )
     switch_parser.add_argument(
         "--guess",
-        "--no-guess",
-        dest="guess",
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Guess remote branch names (default: enabled)",
