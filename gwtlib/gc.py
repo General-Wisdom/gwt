@@ -72,10 +72,14 @@ def get_worktree_mtime(worktree_path: str) -> float:
     - .git directory/file (git internal state changes aren't real work)
     - Directory mtimes (change during housekeeping like `just clean`)
 
+    Fallback order for empty worktrees:
+    1. .git file mtime (reflects worktree creation, unaffected by housekeeping)
+    2. Directory mtime (last resort)
+
     Returns:
         Unix timestamp of most recent modification.
     """
-    most_recent = 0.0
+    most_recent: float | None = None
     worktree_path = os.path.abspath(worktree_path)
 
     for root, dirs, files in os.walk(worktree_path):
@@ -91,10 +95,24 @@ def get_worktree_mtime(worktree_path: str) -> float:
             try:
                 filepath = os.path.join(root, filename)
                 file_mtime = os.path.getmtime(filepath)
-                most_recent = max(most_recent, file_mtime)
+                most_recent = (
+                    file_mtime if most_recent is None else max(most_recent, file_mtime)
+                )
             except OSError:
                 pass
 
+    # Fallback to .git file mtime (reflects worktree creation, not housekeeping)
+    if most_recent is None:
+        git_file = os.path.join(worktree_path, ".git")
+        try:
+            return os.path.getmtime(git_file)
+        except OSError:
+            pass
+        # Last resort: directory mtime
+        try:
+            return os.path.getmtime(worktree_path)
+        except OSError:
+            return 0.0
     return most_recent
 
 

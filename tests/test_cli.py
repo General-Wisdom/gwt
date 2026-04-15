@@ -124,6 +124,13 @@ def test_cli_remove_flow(tmp_path, git_env):
         assert res.returncode == 0
         # Verify worktree is actually removed
         assert not os.path.exists(wt_path), f"Worktree path {wt_path} should be removed"
+        # Verify local branch still exists (user declined deletion)
+        branch_check = subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "--verify", "refs/heads/feature"],
+            env=env_vars,
+            capture_output=True,
+        )
+        assert branch_check.returncode == 0, "Local branch 'feature' should still exist"
     finally:
         os.chdir(original_dir)
 
