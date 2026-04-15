@@ -17,7 +17,11 @@ def prompt_yes_no(prompt: str, default: bool = False) -> bool:
     suffix = "(Y/n)" if default else "(y/N)"
     print(f"{prompt} {suffix}: ", end="", file=sys.stderr)
     sys.stderr.flush()
-    response = input().strip().lower()
+    try:
+        response = input().strip().lower()
+    except EOFError:
+        # Non-interactive context (e.g., piped input, CI)
+        return default
     if not response:
         return default
     return response in ("y", "yes")

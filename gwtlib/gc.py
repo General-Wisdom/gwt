@@ -68,7 +68,9 @@ def get_worktree_mtime(worktree_path: str) -> float:
     """Get the most recent modification time of any file in a worktree.
 
     Walks the directory tree and finds the most recently modified file,
-    excluding .git directory.
+    excluding:
+    - .git directory/file (git internal state changes aren't real work)
+    - Directory mtimes (change during housekeeping like `just clean`)
 
     Returns:
         Unix timestamp of most recent modification.
@@ -81,15 +83,11 @@ def get_worktree_mtime(worktree_path: str) -> float:
         if ".git" in dirs:
             dirs.remove(".git")
 
-        # Check directory modification time
-        try:
-            dir_mtime = os.path.getmtime(root)
-            most_recent = max(most_recent, dir_mtime)
-        except OSError:
-            pass
-
-        # Check file modification times
+        # Check file modification times (excluding .git file in worktrees)
         for filename in files:
+            # Skip .git file (worktrees have a .git file pointing to the real git dir)
+            if filename == ".git" and root == worktree_path:
+                continue
             try:
                 filepath = os.path.join(root, filename)
                 file_mtime = os.path.getmtime(filepath)
@@ -397,6 +395,8 @@ def execute_gc_plan(
                     print("  Removed worktree", file=sys.stderr)
 
                     # Also delete the local branch
+                    # Use -d first (safe delete), fall back to -D only if branch
+                    # is merged to main but not to current HEAD
                     try:
                         run_git_command(
                             ["branch", "-d", wt.branch],
@@ -405,7 +405,8 @@ def execute_gc_plan(
                         )
                         print(f"  Deleted branch '{wt.branch}'", file=sys.stderr)
                     except subprocess.CalledProcessError:
-                        # Branch might not be fully merged, try force delete
+                        # Branch is merged to main (verified during planning) but
+                        # not to current HEAD. Safe to force-delete.
                         try:
                             run_git_command(
                                 ["branch", "-D", wt.branch],
@@ -413,7 +414,8 @@ def execute_gc_plan(
                                 capture=False,
                             )
                             print(
-                                f"  Force-deleted branch '{wt.branch}'", file=sys.stderr
+                                f"  Deleted branch '{wt.branch}' (merged to main, not HEAD)",
+                                file=sys.stderr,
                             )
                         except subprocess.CalledProcessError as e:
                             print(f"  Could not delete branch: {e}", file=sys.stderr)

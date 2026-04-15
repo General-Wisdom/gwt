@@ -219,8 +219,6 @@ def _is_worktree_locked(worktree_path: str, git_dir: str) -> bool:
 class PreflightError(Exception):
     """Raised when pre-flight checks fail."""
 
-    pass
-
 
 def _preflight_check_removal(
     branch_name: str,
@@ -442,7 +440,9 @@ def _remove_all(
                     )
                     deleted_remote = True
                 else:
-                    raise RuntimeError(f"Failed to delete remote branch: {error_msg}")
+                    raise RuntimeError(
+                        f"Failed to delete remote branch: {error_msg}"
+                    ) from None
 
         # Step 2: Delete local branch (skip if doesn't exist)
         if branch_exists_locally(branch_name, git_dir):
@@ -452,7 +452,7 @@ def _remove_all(
                 deleted_local = True
             except subprocess.CalledProcessError as e:
                 error_msg = e.stderr.strip() if e.stderr else str(e)
-                raise RuntimeError(f"Failed to delete local branch: {error_msg}")
+                raise RuntimeError(f"Failed to delete local branch: {error_msg}") from e
         else:
             print(f"Local branch '{branch_name}' already deleted", file=sys.stderr)
             deleted_local = True

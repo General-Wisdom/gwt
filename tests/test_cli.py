@@ -122,7 +122,8 @@ def test_cli_remove_flow(tmp_path, git_env):
             text=True,
         )
         assert res.returncode == 0
-        assert "removed" in res.stdout.lower() or "removed" in res.stderr.lower()
+        # Verify worktree is actually removed
+        assert not os.path.exists(wt_path), f"Worktree path {wt_path} should be removed"
     finally:
         os.chdir(original_dir)
 

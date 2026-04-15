@@ -1,6 +1,8 @@
 # gwtlib/branches.py
+from __future__ import annotations
+
 import subprocess
-from typing import Optional, Tuple
+from typing import Optional
 
 from gwtlib.git_ops import run_git_command, run_git_quiet
 
@@ -79,7 +81,7 @@ def remote_branch_exists(remote_ref: str, git_dir: str) -> bool:
 
 def can_delete_remote_branch(
     branch_name: str, remote: str, git_dir: str
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """Check if we can delete a remote branch (dry-run).
 
     Args:
@@ -105,7 +107,7 @@ def can_delete_remote_branch(
 
 def delete_remote_branch(
     branch_name: str, remote: str, git_dir: str
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """Delete a branch from a remote.
 
     Args:

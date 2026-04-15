@@ -4,7 +4,7 @@ import shutil
 import subprocess
 import sys
 
-from gwtlib.git_ops import is_worktree_dirty, run_git_command, run_git_quiet
+from gwtlib.git_ops import is_worktree_dirty, run_git_quiet
 from gwtlib.parsing import (
     get_worktree_list,
     parse_worktree_legacy,
@@ -276,7 +276,7 @@ def list_all_branches(git_dir, mode="all", annotate=None):
     # Get local branches (single fetch, used for both collection and categorization)
     local_branches = set()
     try:
-        result = run_git_command(
+        result = run_git_quiet(
             ["for-each-ref", "--format=%(refname:short)", "refs/heads/"], git_dir
         )
         for branch in result.stdout.strip().split("\n"):
@@ -291,7 +291,7 @@ def list_all_branches(git_dir, mode="all", annotate=None):
     # Add remote branches (without remote prefix for completion)
     if mode == "all":
         try:
-            result = run_git_command(
+            result = run_git_quiet(
                 ["for-each-ref", "--format=%(refname:short)", "refs/remotes/"], git_dir
             )
             for ref in result.stdout.strip().split("\n"):

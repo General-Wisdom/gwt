@@ -1,12 +1,14 @@
 # gwtlib/github.py
 """GitHub CLI integrations."""
 
+from __future__ import annotations
+
 import json
 import subprocess
-from typing import Optional, Tuple
+from typing import Optional
 
 
-def get_pr_state(branch_name: str) -> Optional[Tuple[str, bool]]:
+def get_pr_state(branch_name: str) -> Optional[tuple[str, bool]]:
     """Check the PR state for a branch using GitHub CLI.
 
     Returns:

@@ -193,10 +193,11 @@ def test_list_worktrees_empty_when_none_exist(tmp_path, git_env):
         os.chdir(original_dir)
 
 
-def _init_bare_repo(bare_path: Path) -> None:
+def _init_bare_repo(bare_path: Path, env: dict = None) -> None:
     """Initialize a bare repository."""
     subprocess.run(
         ["git", "init", "--bare", str(bare_path)],
+        env=env,
         check=True,
         capture_output=True,
         text=True,
@@ -228,7 +229,7 @@ def test_get_remote_tracking_branch(tmp_path, git_env):
     """Test get_remote_tracking_branch returns correct tracking ref."""
     # Create a bare repo to act as "origin"
     bare = tmp_path / "origin.git"
-    _init_bare_repo(bare)
+    _init_bare_repo(bare, git_env)
 
     # Create working repo with origin pointing to bare repo
     repo = tmp_path / "repo"
@@ -278,7 +279,7 @@ def test_remote_branch_exists(tmp_path, git_env):
     """Test remote_branch_exists correctly detects remote branches."""
     # Create a bare repo to act as "origin"
     bare = tmp_path / "origin.git"
-    _init_bare_repo(bare)
+    _init_bare_repo(bare, git_env)
 
     # Create working repo with origin pointing to bare repo
     repo = tmp_path / "repo"
