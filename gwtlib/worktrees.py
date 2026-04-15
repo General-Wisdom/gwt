@@ -325,7 +325,7 @@ def remove_worktree(branch_name: str, git_dir: str) -> None:
         pr_state = None
         pr_is_merged = False
         if has_remote:
-            pr_info = get_pr_state(branch_name)
+            pr_info = get_pr_state(branch_name, cwd=worktree_path)
             if pr_info:
                 pr_state, pr_is_merged = pr_info
 

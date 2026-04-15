@@ -412,9 +412,8 @@ def execute_gc_plan(
                     )
                     print("  Removed worktree", file=sys.stderr)
 
-                    # Also delete the local branch
-                    # Use -d first (safe delete), fall back to -D only if branch
-                    # is merged to main but not to current HEAD
+                    # Delete the local branch (safe delete only)
+                    # If -d fails, branch state changed since planning - keep it for manual inspection
                     try:
                         run_git_command(
                             ["branch", "-d", wt.branch],
@@ -423,20 +422,10 @@ def execute_gc_plan(
                         )
                         print(f"  Deleted branch '{wt.branch}'", file=sys.stderr)
                     except subprocess.CalledProcessError:
-                        # Branch is merged to main (verified during planning) but
-                        # not to current HEAD. Safe to force-delete.
-                        try:
-                            run_git_command(
-                                ["branch", "-D", wt.branch],
-                                git_dir,
-                                capture=False,
-                            )
-                            print(
-                                f"  Deleted branch '{wt.branch}' (merged to main, not HEAD)",
-                                file=sys.stderr,
-                            )
-                        except subprocess.CalledProcessError as e:
-                            print(f"  Could not delete branch: {e}", file=sys.stderr)
+                        print(
+                            f"  Keeping branch '{wt.branch}': not safely deletable (may have diverged since planning)",
+                            file=sys.stderr,
+                        )
                 except subprocess.CalledProcessError as e:
                     print(f"  Error removing worktree: {e}", file=sys.stderr)
 
