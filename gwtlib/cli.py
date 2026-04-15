@@ -126,7 +126,7 @@ def main():
         "--clean-cmd",
         type=str,
         default=None,
-        help="Command to run for cleaning (default: 'just clean')",
+        help="Command to run for cleaning (default: auto-detect or 'just clean')",
     )
     gc_parser.add_argument(
         "-y",

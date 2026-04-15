@@ -270,6 +270,9 @@ def list_all_branches(git_dir, mode="all", annotate=None):
             print_branch(b, "worktree")
         return
 
+    # Track failures for batched warning at end
+    fetch_failures = []
+
     # Get local branches (single fetch, used for both collection and categorization)
     local_branches = set()
     try:
@@ -279,8 +282,8 @@ def list_all_branches(git_dir, mode="all", annotate=None):
         for branch in result.stdout.strip().split("\n"):
             if branch:
                 local_branches.add(branch)
-    except Exception:
-        pass
+    except Exception as e:
+        fetch_failures.append(f"local branches: {e}")
 
     # Collect all branches
     branches = set(local_branches)
@@ -296,8 +299,8 @@ def list_all_branches(git_dir, mode="all", annotate=None):
                     # Extract branch name from remote/branch
                     branch = ref.split("/", 1)[1]
                     branches.add(branch)
-        except Exception:
-            pass
+        except Exception as e:
+            fetch_failures.append(f"remote branches: {e}")
 
     # Categorize branches
     worktree_list = sorted([b for b in branches if b in worktree_branches])
@@ -313,3 +316,11 @@ def list_all_branches(git_dir, mode="all", annotate=None):
         print_branch(branch, "local")
     for branch in remote_only_list:
         print_branch(branch, "remote")
+
+    # Log batched warnings at end (first 10)
+    if fetch_failures:
+        failures_to_show = fetch_failures[:10]
+        print(
+            f"Warning: failed to fetch {', '.join(failures_to_show)}",
+            file=sys.stderr,
+        )

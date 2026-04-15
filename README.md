@@ -233,7 +233,8 @@ gwt --repo /path/to/another/repo.git
 ```
 
 Remove a worktree and clean up branches:
-```
+
+```bash
 gwt remove branch-name
 gwt rm branch-name
 ```

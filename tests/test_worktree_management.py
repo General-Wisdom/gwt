@@ -193,7 +193,7 @@ def test_list_worktrees_empty_when_none_exist(tmp_path, git_env):
         os.chdir(original_dir)
 
 
-def _init_bare_repo(bare_path: Path):
+def _init_bare_repo(bare_path: Path) -> None:
     """Initialize a bare repository."""
     subprocess.run(
         ["git", "init", "--bare", str(bare_path)],
@@ -203,7 +203,7 @@ def _init_bare_repo(bare_path: Path):
     )
 
 
-def _init_repo_with_remote(repo: Path, remote_path: Path):
+def _init_repo_with_remote(repo: Path, remote_path: Path) -> None:
     """Initialize a repo and add a local bare repo as 'origin'."""
     _init_repo(repo)
     subprocess.run(

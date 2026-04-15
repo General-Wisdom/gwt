@@ -8,11 +8,26 @@ from gwtlib.git_ops import run_git_simple
 
 
 def _normalize_repo_path(p: str) -> str:
-    """Auto-append .git for non-bare repositories when given a repo root directory."""
+    """Auto-append .git for non-bare repositories when given a repo root directory.
+
+    Also handles worktrees and submodules where .git is a file containing a gitdir pointer.
+    """
     if os.path.isdir(p):
         dot_git = os.path.join(p, ".git")
         if os.path.isdir(dot_git):
             return dot_git
+        if os.path.isfile(dot_git):
+            # Worktree or submodule: .git is a file with "gitdir: <path>"
+            try:
+                with open(dot_git, "r", encoding="utf-8") as fh:
+                    line = fh.readline().strip()
+                if line.startswith("gitdir:"):
+                    gitdir = line[len("gitdir:") :].strip()
+                    if not os.path.isabs(gitdir):
+                        gitdir = os.path.abspath(os.path.join(p, gitdir))
+                    return gitdir
+            except OSError:
+                pass
     return p
 
 

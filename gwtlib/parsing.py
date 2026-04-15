@@ -26,7 +26,11 @@ def get_main_branch_name(git_dir: str) -> Optional[str]:
         if lines:
             parts = lines[0].split()
             if len(parts) >= 3:
-                return parts[2].strip("[]")
+                branch = parts[2].strip("[]")
+                # Return None if main worktree is in detached HEAD state
+                if branch.startswith("(") or "detached" in branch.lower():
+                    return None
+                return branch
     except subprocess.CalledProcessError:
         pass
     return None

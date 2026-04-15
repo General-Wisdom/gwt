@@ -195,7 +195,10 @@ def _get_safe_dir_if_needed(worktree_path: str, git_dir: str) -> Optional[str]:
 
 
 def _is_worktree_locked(worktree_path: str, git_dir: str) -> bool:
-    """Check if worktree is locked."""
+    """Check if worktree is locked.
+
+    Returns True (locked) if we cannot determine the state, to prevent accidental deletion.
+    """
     try:
         from gwtlib.parsing import parse_worktree_porcelain
 
@@ -204,8 +207,12 @@ def _is_worktree_locked(worktree_path: str, git_dir: str) -> bool:
             for entry in entries:
                 if entry.get("path") == worktree_path:
                     return entry.get("locked", False)
-    except Exception:
-        pass
+    except Exception as e:
+        print(
+            f"Warning: failed to check lock state for {worktree_path}: {e}",
+            file=sys.stderr,
+        )
+        return True  # Fail closed: assume locked if we can't check
     return False
 
 
@@ -293,6 +300,9 @@ def remove_worktree(branch_name: str, git_dir: str) -> None:
 
         # Determine branch state
         remote_ref = get_remote_tracking_branch(branch_name, git_dir)
+        # Fallback for branches pushed without upstream tracking
+        if remote_ref is None:
+            remote_ref = find_remote_branch(branch_name, git_dir)
         has_remote = remote_ref is not None and remote_branch_exists(
             remote_ref, git_dir
         )

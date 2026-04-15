@@ -380,6 +380,13 @@ def execute_gc_plan(
             if dry_run:
                 print("  Would remove worktree", file=sys.stderr)
             else:
+                # Re-check dirtiness to avoid TOCTOU race
+                if is_worktree_dirty(wt.path):
+                    print(
+                        "  Skipping: worktree became dirty since planning",
+                        file=sys.stderr,
+                    )
+                    continue
                 try:
                     # Use git worktree remove directly since we know it's clean
                     run_git_command(

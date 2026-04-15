@@ -20,8 +20,9 @@ def is_worktree_dirty(worktree_path: str, include_untracked: bool = True) -> boo
             cmd.append("-uno")
         result = subprocess.run(cmd, check=True, capture_output=True, text=True)
         return bool(result.stdout.strip())
-    except subprocess.CalledProcessError:
-        return False
+    except subprocess.CalledProcessError as e:
+        print(f"Warning: git status failed for {worktree_path}: {e}", file=sys.stderr)
+        return True  # Fail closed: assume dirty if we can't check
 
 
 def run_git_command(cmd_args, git_dir, capture=True):
