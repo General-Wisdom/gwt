@@ -1,7 +1,12 @@
 # gwtlib/api.py
-from gwtlib.branches import branch_exists_locally
+from gwtlib.branches import (
+    branch_exists_locally,
+    get_remote_tracking_branch,
+    remote_branch_exists,
+)
 from gwtlib.display import ColorMode
 from gwtlib.parsing import (
+    get_main_branch_name,
     get_worktree_list,
     parse_worktree_legacy,
     parse_worktree_porcelain,
@@ -25,10 +30,13 @@ __all__ = [
     "create_worktree_for_branch",
     # branches
     "branch_exists_locally",
+    "get_remote_tracking_branch",
+    "remote_branch_exists",
     # parsing
     "parse_worktree_porcelain",
     "parse_worktree_legacy",
     "get_worktree_list",
+    "get_main_branch_name",
     # resolution
     "auto_detect_git_dir",
     # display

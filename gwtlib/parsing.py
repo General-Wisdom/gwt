@@ -2,9 +2,38 @@
 import os
 import subprocess
 import sys
+from typing import Optional
 
 from gwtlib.git_ops import run_git_in_worktree, run_git_quiet
 from gwtlib.paths import get_worktree_base
+
+
+def get_main_branch_name(git_dir: str) -> Optional[str]:
+    """Extract the main branch name from git worktree list.
+
+    Parses the first line of `git worktree list` output to find the main branch.
+    The main worktree is always listed first and shows the branch name in brackets.
+
+    Args:
+        git_dir: Path to the git directory.
+
+    Returns:
+        The main branch name (e.g., 'main' or 'master'), or None if it cannot be determined.
+    """
+    try:
+        result = run_git_quiet(["worktree", "list"], git_dir)
+        lines = result.stdout.splitlines()
+        if lines:
+            parts = lines[0].split()
+            if len(parts) >= 3:
+                branch = parts[2].strip("[]")
+                # Return None if main worktree is in detached HEAD state
+                if branch.startswith("(") or "detached" in branch.lower():
+                    return None
+                return branch
+    except subprocess.CalledProcessError:
+        pass
+    return None
 
 
 def parse_worktree_porcelain(git_dir, include_main=True):
@@ -146,31 +175,20 @@ def get_git_worktrees(git_dir, include_main=False):
         git_dir: Path to git directory
         include_main: If True, include the main worktree in results
     """
+    # Use existing parsers to avoid duplicating parsing logic
+    entries = parse_worktree_porcelain(git_dir, include_main=include_main)
+    if entries is None:
+        entries = parse_worktree_legacy(git_dir, include_main=include_main)
+
     git_worktrees = {}
-    try:
-        result = run_git_quiet(["worktree", "list"], git_dir)
+    for entry in entries:
+        branch = entry.get("branch")
+        path = entry.get("path")
+        # Skip detached HEAD worktrees
+        if branch and path and not entry.get("detached"):
+            git_worktrees[branch] = path
 
-        lines = result.stdout.splitlines()
-        for i, line in enumerate(lines):
-            parts = line.split()
-            if len(parts) >= 3:
-                path = parts[0]
-                branch_info = parts[2]
-                # Extract branch name from [branch] format
-                branch = branch_info.strip("[]")
-
-                # Skip the first entry - it's the main working tree
-                if i == 0 and not include_main:
-                    continue
-
-                # Skip detached HEAD worktrees
-                if branch != "(detached)" and not branch.startswith("(HEAD"):
-                    git_worktrees[branch] = path
-
-        return git_worktrees
-    except subprocess.CalledProcessError as e:
-        print(f"Error listing git worktrees: {e}", file=sys.stderr)
-        sys.exit(1)
+    return git_worktrees
 
 
 def get_directory_worktrees(git_dir):

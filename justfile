@@ -102,9 +102,9 @@ check-shell:
 
 # Install to ~/.local/bin (common on Linux/macOS)
 install-local: build
-  mkdir -p "$$HOME/.local/bin"
-  ln -sfn "$(pwd)/dist/gwt" "$$HOME/.local/bin/gwt"
-  @echo "Installed to $$HOME/.local/bin/gwt (symlink). Ensure $$HOME/.local/bin is in PATH."
+  mkdir -p "$HOME/.local/bin"
+  ln -sfn "$(pwd)/dist/gwt" "$HOME/.local/bin/gwt"
+  @echo "Installed to \$HOME/.local/bin/gwt (symlink). Ensure \$HOME/.local/bin is in PATH."
 
 # Clean artifacts
 clean:

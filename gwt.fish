@@ -80,7 +80,7 @@ end
 function __gwt_complete
     set -l cmd (commandline -opc)
     set -l cur (commandline -ct)
-    set -l commands repo switch s list ls l remove rm
+    set -l commands repo switch s list ls l remove rm gc
 
     if test (count $cmd) -eq 1
         printf '%s\n' $commands

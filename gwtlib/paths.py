@@ -60,12 +60,3 @@ def rel_display_path(path: str, git_dir: str, force_absolute: bool) -> str:
     if base and os.path.abspath(path).startswith(os.path.abspath(base) + os.sep):
         return cast(str, os.path.relpath(path, os.path.dirname(base)))
     return os.path.abspath(path)
-
-
-def _normalize_repo_path(p: str) -> str:
-    """Auto-append .git for non-bare repositories when given a repo root directory."""
-    if os.path.isdir(p):
-        dot_git = os.path.join(p, ".git")
-        if os.path.isdir(dot_git):
-            return dot_git
-    return p
