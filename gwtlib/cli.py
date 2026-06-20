@@ -7,6 +7,7 @@ from gwtlib.config import HAS_TOML, get_config_path, load_config, save_config
 from gwtlib.display import list_all_branches, list_worktrees
 from gwtlib.gc import gc_worktrees
 from gwtlib.resolution import get_git_dir, get_git_dir_with_source
+from gwtlib.tree import show_tree
 from gwtlib.worktrees import remove_worktree, switch_branch
 
 
@@ -99,6 +100,26 @@ def main():
         choices=["none", "bash", "fish"],
         default="none",
         help="Annotate branch completion output for shells",
+    )
+
+    # Create a 'tree' subcommand: stacked-PR tree of worktrees with commits
+    tree_parser = subparsers.add_parser(
+        "tree", help="Show worktrees with commits as a stacked-PR tree"
+    )
+    tree_parser.add_argument(
+        "--base",
+        help="Branch to use as the tree root (default: the main worktree's branch)",
+    )
+    tree_parser.add_argument(
+        "--color",
+        choices=["auto", "always", "never"],
+        default="auto",
+        help="Colorize output: auto (default), always, or never",
+    )
+    tree_parser.add_argument(
+        "--absolute",
+        action="store_true",
+        help="Show absolute paths instead of relative",
     )
 
     # Special command to get the default repository from config
@@ -259,6 +280,13 @@ def main():
         )
     elif args.command in ["remove", "rm"]:
         remove_worktree(args.branch_name, git_dir)
+    elif args.command == "tree":
+        show_tree(
+            git_dir,
+            base=getattr(args, "base", None),
+            color=getattr(args, "color", "auto"),
+            absolute=getattr(args, "absolute", False),
+        )
     elif args.command in ["list", "ls", "l"]:
         if hasattr(args, "branches") and args.branches:
             # Pass annotate flag down

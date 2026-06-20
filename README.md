@@ -39,6 +39,13 @@ An opinionated tool for rapidly working in git worktrees. `gwt` works like `git 
   
   This requires the `gh` CLI for PR status detection.
 
+- Visualize stacked PRs as a tree
+
+  `gwt tree`
+
+  Shows every worktree that has commits ahead of the trunk, nested under the
+  branch it's stacked on, so you can see your stacked-PR structure at a glance.
+
 - Switch to a different repo
 
   `gwt --repo /some/other/repo.git`
@@ -243,6 +250,29 @@ The removal behavior is context-aware:
 - If the PR has been merged, `gwt rm` automatically cleans up the worktree, local branch, and remote branch
 - If the branch was never pushed to a remote, it removes the worktree and prompts about the local branch
 - If the branch is pushed but the PR isn't merged, it warns you and prompts for confirmation before each deletion
+
+Show worktrees with commits as a stacked-PR tree:
+```
+gwt tree
+```
+
+The trunk (the main worktree's branch) is the root, and each worktree that has
+commits ahead of the trunk is nested under the branch it is stacked on. Each node
+shows the commits ahead of its parent (`+N`), a `-M ⚠` marker when the branch is
+behind its parent and needs a rebase, the short SHA, and the worktree path; the
+current worktree is marked with `•`. Example:
+
+```
+  main (root)
+├─ • feature-a   +2        abc1234  repo.gwt/feature-a
+│  └─ feature-b  +1        def5678  repo.gwt/feature-b
+└─ feature-c     +1 -1 ⚠   9876fed  repo.gwt/feature-c
+```
+
+Options:
+- `--base BRANCH`: use a different branch as the tree root
+- `--color {auto,always,never}`: control colorized output
+- `--absolute`: show absolute worktree paths
 
 ## How it works
 
