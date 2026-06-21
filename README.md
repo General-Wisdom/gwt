@@ -257,22 +257,41 @@ gwt tree
 ```
 
 The trunk (the main worktree's branch) is the root, and each worktree that has
-commits ahead of the trunk is nested under the branch it is stacked on. Each node
-shows the commits ahead of its parent (`+N`), a `-M ⚠` marker when the branch is
-behind its parent and needs a rebase, the short SHA, and the worktree path; the
-current worktree is marked with `•`. Example:
+commits ahead of the trunk is nested under the branch it is stacked on. The tree
+structure itself shows what's stacked on what, so each node shows just two things:
+
+- **`+N`** — the size of this branch's PR: commits it adds on top of its parent.
+- **a sync badge** — `✓` in sync with its parent and the trunk; `↓N ⚠` behind the
+  trunk by N (needs a rebase); `↻N` behind its parent by N (needs a restack);
+  `(unrelated)` if it shares no history with the trunk.
+
+…followed by the time since its last commit. The current worktree is marked `•`.
 
 ```
-  main (root)
-├─ • feature-a   +2        abc1234  repo.gwt/feature-a
-│  └─ feature-b  +1        def5678  repo.gwt/feature-b
-└─ feature-c     +1 -1 ⚠   9876fed  repo.gwt/feature-c
+  main (root)                          7mo
+├─ • feature-a   +3   ✓               2h
+│  └─ feature-b  +1   ↻2 ⚠            1d     (parent moved; needs restack)
+└─ feature-c     +2   ↓4 ⚠            9d     (trunk moved on; needs rebase)
+  +N this PR (vs parent) · ✓ synced · ↓N behind main · ↻N restack on parent
 ```
+
+Pass `-l`/`--long` to also show the short SHA and worktree path. Pass `--pr` to
+look up each branch's GitHub PR status (`OPEN`/`MERGED`/`CLOSED`) via the `gh` CLI —
+this makes one network request per shown branch (run in parallel), so it's opt-in.
+
+By default, stale branches (no commit in the last 30 days) are hidden so the tree
+stays focused on active work; a `… N stale branch(es) hidden` footer tells you how
+many were dropped. Ancestors of an active branch are always kept so the structure
+stays intact.
 
 Options:
+- `-l`, `--long`: show the worktree path and SHA columns
+- `--pr`: show each branch's GitHub PR status (`OPEN`/`MERGED`/`CLOSED`; needs `gh`)
+- `--stale-days N`: hide branches with no commit in N days (default: 30)
+- `-a`, `--all`: include stale branches (no age filtering)
 - `--base BRANCH`: use a different branch as the tree root
 - `--color {auto,always,never}`: control colorized output
-- `--absolute`: show absolute worktree paths
+- `--absolute`: show absolute worktree paths (implies `-l`)
 
 ## How it works
 

@@ -117,9 +117,35 @@ def main():
         help="Colorize output: auto (default), always, or never",
     )
     tree_parser.add_argument(
+        "-l",
+        "--long",
+        dest="long",
+        action="store_true",
+        help="Show the worktree path (and full SHA column)",
+    )
+    tree_parser.add_argument(
         "--absolute",
         action="store_true",
-        help="Show absolute paths instead of relative",
+        help="Show absolute paths instead of relative (implies -l)",
+    )
+    tree_parser.add_argument(
+        "--stale-days",
+        type=int,
+        default=30,
+        help="Hide branches with no commit in this many days (default: 30)",
+    )
+    tree_parser.add_argument(
+        "-a",
+        "--all",
+        dest="show_all",
+        action="store_true",
+        help="Include stale branches (don't filter by age)",
+    )
+    tree_parser.add_argument(
+        "--pr",
+        dest="show_pr",
+        action="store_true",
+        help="Look up each branch's GitHub PR status (needs gh; slower)",
     )
 
     # Special command to get the default repository from config
@@ -281,11 +307,16 @@ def main():
     elif args.command in ["remove", "rm"]:
         remove_worktree(args.branch_name, git_dir)
     elif args.command == "tree":
+        absolute = getattr(args, "absolute", False)
         show_tree(
             git_dir,
             base=getattr(args, "base", None),
             color=getattr(args, "color", "auto"),
-            absolute=getattr(args, "absolute", False),
+            absolute=absolute,
+            stale_days=getattr(args, "stale_days", 30),
+            show_all=getattr(args, "show_all", False),
+            show_path=getattr(args, "long", False) or absolute,
+            show_pr=getattr(args, "show_pr", False),
         )
     elif args.command in ["list", "ls", "l"]:
         if hasattr(args, "branches") and args.branches:
