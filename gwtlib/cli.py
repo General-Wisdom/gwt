@@ -231,9 +231,9 @@ def main():
                 print(config["default_repo"])
         return
 
-    # If no command specified, default to list
+    # If no command specified, default to the stacked-PR tree view
     if args.command is None:
-        args.command = "list"
+        args.command = "tree"
 
     # Resolve git dir with new function; explicit arg for list only
     if (

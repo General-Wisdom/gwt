@@ -329,3 +329,36 @@ def test_tree_pr_flag_runs_without_gh(tmp_path):
     res = _run_tree(git_dir, tmp_path, cwd=outside, extra=["--pr"])
     assert res.returncode == 0, res.stderr
     assert "feature-a" in res.stderr
+
+
+def test_bare_gwt_defaults_to_tree(tmp_path):
+    """Running `gwt` with no subcommand renders the tree, not the flat list."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo)
+    default = _default_branch(repo)
+
+    _git(repo, "checkout", "-b", "feature-a")
+    _commit(repo, "a1")
+    _git(repo, "checkout", default)
+
+    git_dir = str(repo / ".git")
+    _add_worktrees(repo, git_dir, "feature-a")
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    gwt_script = Path(__file__).parent.parent / "gwt.py"
+    env = os.environ.copy()
+    env["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
+    env["GWT_GIT_DIR"] = git_dir
+    res = subprocess.run(
+        [sys.executable, str(gwt_script)],
+        env=env,
+        cwd=str(outside),
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode == 0, res.stderr
+    # The tree legend is unique to the tree view (the flat list has no such line).
+    assert "this PR" in res.stderr
+    assert "feature-a" in res.stderr

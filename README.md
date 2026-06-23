@@ -4,9 +4,13 @@
 
 An opinionated tool for rapidly working in git worktrees. `gwt` works like `git switch` but automatically manages worktrees. It makes it fast and easy to:
 
-- See all existing branch+worktrees in the current repo
+- See your worktrees as a stacked-PR tree (the default)
 
-  `gwt` or `gwt list` or `gwt ls`
+  `gwt` or `gwt tree`
+
+- See all existing branch+worktrees as a flat list
+
+  `gwt list` or `gwt ls`
 
 - Switch to a branch+worktree [in the current repo]
 
@@ -203,9 +207,14 @@ The configuration file is created automatically when you first use the `gwt --re
 
 ## Usage
 
-List all worktrees:
+Show the stacked-PR tree (the default when run with no arguments):
 ```
 gwt
+gwt tree
+```
+
+List all worktrees as a flat table:
+```
 gwt list
 gwt ls
 ```
