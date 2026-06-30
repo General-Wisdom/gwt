@@ -43,12 +43,13 @@ An opinionated tool for rapidly working in git worktrees. `gwt` works like `git 
   
   This requires the `gh` CLI for PR status detection.
 
-- Visualize stacked PRs as a tree
+- Garbage-collect stale worktrees
 
-  `gwt tree`
+  `gwt gc`
 
-  Shows every worktree that has commits ahead of the trunk, nested under the
-  branch it's stacked on, so you can see your stacked-PR structure at a glance.
+  Runs a clean command (e.g. `just clean`) on worktrees older than `--clean-days`
+  (7) and removes ones older than `--delete-days` (28) that are clean and merged.
+  Use `-p`/`--plan` to preview, `-y` to skip the confirmation prompt.
 
 - Switch to a different repo
 
@@ -277,10 +278,10 @@ structure itself shows what's stacked on what, so each node shows just two thing
 …followed by the time since its last commit. The current worktree is marked `•`.
 
 ```
-  main (root)                          7mo
-├─ • feature-a   +3   ✓               2h
-│  └─ feature-b  +1   ↻2 ⚠            1d     (parent moved; needs restack)
-└─ feature-c     +2   ↓4 ⚠            9d     (trunk moved on; needs rebase)
+  main (root)              7mo
+• ├ feature-a    +3  ✓     2d
+  │ └ feature-b  +1  ↻1 ⚠  1d   (needs restack onto feature-a)
+  └ feature-c    +1  ↓3 ⚠  8d   (needs rebase onto main)
   +N this PR (vs parent) · ✓ synced · ↓N behind main · ↻N restack on parent
 ```
 
