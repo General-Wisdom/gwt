@@ -46,7 +46,22 @@ def run_git_quiet(cmd_args, git_dir):
         check=True,
         capture_output=True,
         text=True,
+        stdin=subprocess.DEVNULL,
     )
+
+
+def run_git_rc(cmd_args, git_dir):
+    """Run git and return only the exit code; never raises on non-zero, never prints.
+
+    Useful for predicate commands like `merge-base --is-ancestor`, which exit
+    non-zero by design (so run_git_quiet's check=True would raise).
+    """
+    return subprocess.run(
+        ["git", f"--git-dir={git_dir}"] + cmd_args,
+        capture_output=True,
+        text=True,
+        stdin=subprocess.DEVNULL,
+    ).returncode
 
 
 def run_git_in_worktree(cmd_args, worktree_path, capture=True):

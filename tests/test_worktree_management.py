@@ -32,7 +32,7 @@ prunable
         wt2=str(tmp_path / "repo.gwt" / "det"),
     )
 
-    def fake_run(cmd, capture_output, text, check):
+    def fake_run(cmd, capture_output, text, check, **kwargs):
         assert "worktree" in cmd
         assert "--porcelain" in cmd
         return _subprocess_result(stdout=porcelain)
@@ -56,7 +56,7 @@ def test_parse_worktree_legacy(monkeypatch, tmp_path):
 {tmp_path}/repo.gwt/detached  deadbee [(detached)]
 """
 
-    def fake_run(cmd, capture_output, text, check):
+    def fake_run(cmd, capture_output, text, check, **kwargs):
         # Handle both worktree list and rev-parse calls
         if "worktree" in cmd and "list" in cmd:
             return _subprocess_result(stdout=legacy)

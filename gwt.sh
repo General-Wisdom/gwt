@@ -54,7 +54,7 @@ _gwt_completions() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    commands="repo switch s list ls l remove rm gc"
+    commands="repo switch s list ls l remove rm gc tree"
 
     # Don't use file completion as a fallback
     compopt -o nospace
@@ -94,8 +94,8 @@ _gwt_completions() {
                 fi
                 return 0
                 ;;
-            list|ls|l)
-                # No completions needed for list commands
+            list|ls|l|tree)
+                # No completions needed for list/tree commands
                 return 0
                 ;;
             *)

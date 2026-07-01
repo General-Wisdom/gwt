@@ -10,7 +10,7 @@ from typing import Optional
 
 
 def get_pr_state(
-    branch_name: str, cwd: Optional[str] = None
+    branch_name: str, cwd: Optional[str] = None, quiet: bool = False
 ) -> Optional[tuple[str, bool]]:
     """Check the PR state for a branch using GitHub CLI.
 
@@ -18,6 +18,8 @@ def get_pr_state(
         branch_name: The branch to check for PRs.
         cwd: Directory to run gh from (should be inside the git repo).
              If None, uses current directory.
+        quiet: If True, suppress warnings on failure (for bulk lookups where the
+             caller reports problems once instead of per-branch).
 
     Returns:
         Tuple of (state, is_merged) where state is 'OPEN', 'CLOSED', or 'MERGED',
@@ -42,7 +44,7 @@ def get_pr_state(
                 return None
             # Other failures (not in a repo, no gh CLI, network error, etc.)
             # Log warning so user knows GitHub lookup failed
-            if result.stderr.strip():
+            if not quiet and result.stderr.strip():
                 print(
                     f"Warning: GitHub PR lookup failed: {result.stderr.strip()}",
                     file=sys.stderr,
@@ -57,8 +59,10 @@ def get_pr_state(
         return (state, is_merged)
     except FileNotFoundError:
         # gh CLI not installed
-        print("Warning: gh CLI not found, skipping PR lookup", file=sys.stderr)
+        if not quiet:
+            print("Warning: gh CLI not found, skipping PR lookup", file=sys.stderr)
         return None
     except json.JSONDecodeError:
-        print("Warning: Failed to parse gh CLI output", file=sys.stderr)
+        if not quiet:
+            print("Warning: Failed to parse gh CLI output", file=sys.stderr)
         return None

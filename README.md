@@ -4,9 +4,13 @@
 
 An opinionated tool for rapidly working in git worktrees. `gwt` works like `git switch` but automatically manages worktrees. It makes it fast and easy to:
 
-- See all existing branch+worktrees in the current repo
+- See your worktrees as a stacked-PR tree (the default)
 
-  `gwt` or `gwt list` or `gwt ls`
+  `gwt` or `gwt tree`
+
+- See all existing branch+worktrees as a flat list
+
+  `gwt list` or `gwt ls`
 
 - Switch to a branch+worktree [in the current repo]
 
@@ -38,6 +42,14 @@ An opinionated tool for rapidly working in git worktrees. `gwt` works like `git 
   - **Pushed but PR not merged**: Shows warning, prompts for each deletion
   
   This requires the `gh` CLI for PR status detection.
+
+- Garbage-collect stale worktrees
+
+  `gwt gc`
+
+  Runs a clean command (e.g. `just clean`) on worktrees older than `--clean-days`
+  (7) and removes ones older than `--delete-days` (28) that are clean and merged.
+  Use `-p`/`--plan` to preview, `-y` to skip the confirmation prompt.
 
 - Switch to a different repo
 
@@ -196,9 +208,14 @@ The configuration file is created automatically when you first use the `gwt --re
 
 ## Usage
 
-List all worktrees:
+Show the stacked-PR tree (the default when run with no arguments):
 ```
 gwt
+gwt tree
+```
+
+List all worktrees as a flat table:
+```
 gwt list
 gwt ls
 ```
@@ -243,6 +260,48 @@ The removal behavior is context-aware:
 - If the PR has been merged, `gwt rm` automatically cleans up the worktree, local branch, and remote branch
 - If the branch was never pushed to a remote, it removes the worktree and prompts about the local branch
 - If the branch is pushed but the PR isn't merged, it warns you and prompts for confirmation before each deletion
+
+Show worktrees with commits as a stacked-PR tree:
+```
+gwt tree
+```
+
+The trunk (the main worktree's branch) is the root, and each worktree that has
+commits ahead of the trunk is nested under the branch it is stacked on. The tree
+structure itself shows what's stacked on what, so each node shows just two things:
+
+- **`+N`** — the size of this branch's PR: commits it adds on top of its parent.
+- **a sync badge** — `✓` in sync with its parent and the trunk; `↓N ⚠` behind the
+  trunk by N (needs a rebase); `↻N` behind its parent by N (needs a restack);
+  `(unrelated)` if it shares no history with the trunk.
+
+…followed by the time since its last commit. The current worktree is marked `•`.
+
+```
+  main (root)              7mo
+• ├ feature-a    +3  ✓     2d
+  │ └ feature-b  +1  ↻1 ⚠  1d   (needs restack onto feature-a)
+  └ feature-c    +1  ↓3 ⚠  8d   (needs rebase onto main)
+  +N this PR (vs parent) · ✓ synced · ↓N behind main · ↻N restack on parent
+```
+
+Pass `-l`/`--long` to also show the short SHA and worktree path. Pass `--pr` to
+look up each branch's GitHub PR status (`OPEN`/`MERGED`/`CLOSED`) via the `gh` CLI —
+this makes one network request per shown branch (run in parallel), so it's opt-in.
+
+By default, stale branches (no commit in the last 30 days) are hidden so the tree
+stays focused on active work; a `… N stale branch(es) hidden` footer tells you how
+many were dropped. Ancestors of an active branch are always kept so the structure
+stays intact.
+
+Options:
+- `-l`, `--long`: show the worktree path and SHA columns
+- `--pr`: show each branch's GitHub PR status (`OPEN`/`MERGED`/`CLOSED`; needs `gh`)
+- `--stale-days N`: hide branches with no commit in N days (default: 30)
+- `-a`, `--all`: include stale branches (no age filtering)
+- `--base BRANCH`: use a different branch as the tree root
+- `--color {auto,always,never}`: control colorized output
+- `--absolute`: show absolute worktree paths (implies `-l`)
 
 ## How it works
 
