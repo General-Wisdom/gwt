@@ -65,7 +65,9 @@ def format_worktree_rows(
     sep = "  "
     marker_width = 2
     branch_names = [(e.get("branch") or "") for e in entries_sorted]
-    max_branch = min(max([len(b) for b in branch_names] + [0]), 40)
+    # Let the branch column grow to the longest name; the terminal-derived
+    # branch_width below is the only thing that may shorten it.
+    max_branch = max([len(b) for b in branch_names] + [0])
 
     # Build lines
     lines = []
