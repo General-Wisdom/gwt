@@ -80,7 +80,7 @@ end
 function __gwt_complete
     set -l cmd (commandline -opc)
     set -l cur (commandline -ct)
-    set -l commands repo switch s list ls l remove rm gc tree
+    set -l commands repo switch s list ls l remove rm gc tree fz f
 
     if test (count $cmd) -eq 1
         printf '%s\n' $commands
@@ -89,7 +89,7 @@ function __gwt_complete
 
     set -l subcmd $cmd[2]
     switch $subcmd
-        case switch s
+        case switch s fz f
             __gwt_run list --branches all --annotate fish 2>/dev/null
         case remove rm
             __gwt_run list --branches worktrees --annotate fish 2>/dev/null

@@ -40,6 +40,11 @@ else
         echo "  Install with: pip install tomli tomli-w"
         echo ""
     fi
+    if ! python3 -c "import rapidfuzz" 2>/dev/null; then
+        echo "  WARNING: 'rapidfuzz' not installed for system Python"
+        echo "  Install with: pip install rapidfuzz"
+        echo ""
+    fi
 fi
 
 # Clean up old installation if present (gwt.py in ~/.local/bin from pre-AppDir versions)

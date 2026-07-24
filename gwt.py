@@ -2,6 +2,7 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
+#   "rapidfuzz>=3.0.0",
 #   "tomli>=2.0.0; python_version < '3.11'",
 #   "tomli-w>=1.0.0",
 #   "tqdm>=4.0.0",

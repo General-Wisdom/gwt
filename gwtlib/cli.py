@@ -5,6 +5,7 @@ import sys
 
 from gwtlib.config import HAS_TOML, get_config_path, load_config, save_config
 from gwtlib.display import list_all_branches, list_worktrees
+from gwtlib.fuzzy import ACTIONS, DEFAULT_ACTION, fuzzy_pick
 from gwtlib.gc import gc_worktrees
 from gwtlib.resolution import get_git_dir, get_git_dir_with_source
 from gwtlib.tree import show_tree
@@ -146,6 +147,26 @@ def main():
         dest="show_pr",
         action="store_true",
         help="Look up each branch's GitHub PR status (needs gh; slower)",
+    )
+
+    # Create a 'fz' subcommand: fuzzy-match worktrees and pick one interactively
+    fz_parser = subparsers.add_parser(
+        "fz", aliases=["f"], help="Fuzzy-find a worktree and switch to it"
+    )
+    fz_parser.add_argument(
+        "query", nargs="?", default="", help="Fuzzy query (omit to list all worktrees)"
+    )
+    fz_parser.add_argument(
+        "--action",
+        choices=ACTIONS,
+        default=DEFAULT_ACTION,
+        help=f"Action Enter performs (default: {DEFAULT_ACTION}); shift+tab cycles it",
+    )
+    fz_parser.add_argument(
+        "--color",
+        choices=["auto", "always", "never"],
+        default="auto",
+        help="Colorize output: auto (default), always, or never",
     )
 
     # Special command to get the default repository from config
@@ -306,6 +327,15 @@ def main():
         )
     elif args.command in ["remove", "rm"]:
         remove_worktree(args.branch_name, git_dir)
+    elif args.command in ["fz", "f"]:
+        sys.exit(
+            fuzzy_pick(
+                git_dir,
+                query=getattr(args, "query", ""),
+                action=getattr(args, "action", DEFAULT_ACTION),
+                color=getattr(args, "color", "auto"),
+            )
+        )
     elif args.command == "tree":
         absolute = getattr(args, "absolute", False)
         show_tree(

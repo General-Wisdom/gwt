@@ -12,6 +12,13 @@ An opinionated tool for rapidly working in git worktrees. `gwt` works like `git 
 
   `gwt list` or `gwt ls`
 
+- Fuzzy-find a worktree and switch to it
+
+  `gwt fz query` or `gwt f query`
+
+  Opens an interactive picker of the worktrees matching `query`; Enter switches
+  to the highlighted one. Shift+Tab changes what Enter does.
+
 - Switch to a branch+worktree [in the current repo]
 
   `gwt switch branch-name` or `gwt s branch-name` 
@@ -260,6 +267,53 @@ The removal behavior is context-aware:
 - If the PR has been merged, `gwt rm` automatically cleans up the worktree, local branch, and remote branch
 - If the branch was never pushed to a remote, it removes the worktree and prompts about the local branch
 - If the branch is pushed but the PR isn't merged, it warns you and prompts for confirmation before each deletion
+
+Fuzzy-find a worktree and switch to it:
+```
+gwt fz alph
+gwt f alph
+gwt fz        # no query: pick from all worktrees
+```
+
+The query is fuzzy-matched (via [rapidfuzz](https://github.com/rapidfuzz/RapidFuzz))
+against each worktree's **full** branch name and **full** path — so `gwt fz forty`
+finds `a-very-long-branch-name-that-exceeds-forty-characters`, and
+`gwt fz repo.gwt/alpha` matches on the path. Unlike the `ls` table, the picker
+never abbreviates the branch name to fit a column.
+
+```
+❯ feat
+❯ feature-alpha    …/repo.gwt/feature-alpha
+  feature-beta     …/repo.gwt/feature-beta
+2/4 · enter: switch (cd to worktree) · shift+tab: change action · ↑/↓ move · esc: cancel
+```
+
+Keys:
+
+| Key | Action |
+| --- | --- |
+| ↑ / ↓, `ctrl+p` / `ctrl+n` | move the selection |
+| any character, `backspace`, `ctrl+u` | refine the query live |
+| `enter` | run the current action on the selection |
+| `shift+tab` | cycle the action Enter performs |
+| `esc`, `ctrl+c` | cancel (your shell stays where it is) |
+
+Shift+Tab cycles the action through `switch → path → tree → remove`, wrapping
+around; the footer always shows what Enter will do:
+
+- **`switch`** (default) — cd to the worktree, exactly like `gwt switch`
+- **`path`** — print the worktree's absolute path
+- **`tree`** — show the stacked-PR tree rooted at that branch (`gwt tree --base`)
+- **`remove`** — remove the worktree and clean up branches (`gwt remove`)
+
+Pass `--action` to start on a different action (it still cycles from there):
+```
+gwt fz --action path alph
+```
+
+A query that matches exactly one worktree skips the picker and acts immediately.
+When there's no terminal to draw on (piped output, CI), `gwt fz` acts on the
+best match instead of prompting, so it stays usable in scripts.
 
 Show worktrees with commits as a stacked-PR tree:
 ```

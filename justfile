@@ -57,9 +57,9 @@ lint:
 type-check:
   {{WRAP}} uvx ty check {{SRCS}} --exit-zero
 
-# Test suite
+# Test suite (rapidfuzz is a gwt runtime dep, needed by the fz picker tests)
 test:
-  {{WRAP}} uvx pytest
+  {{WRAP}} uvx --with rapidfuzz pytest
 
 # Aggregate check
 check:

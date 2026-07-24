@@ -54,7 +54,7 @@ _gwt_completions() {
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
-    commands="repo switch s list ls l remove rm gc tree"
+    commands="repo switch s list ls l remove rm gc tree fz f"
 
     # Don't use file completion as a fallback
     compopt -o nospace
@@ -76,8 +76,9 @@ _gwt_completions() {
                 mapfile -t COMPREPLY < <(compgen -d -- "${cur}")
                 return 0
                 ;;
-            switch|s)
-                # All branches for switch
+            switch|s|fz|f)
+                # All branches for switch; fz takes a free-form query, but a
+                # branch name is the most useful starting point
                 _gwt_get_branches_output=$(_gwt_run list --branches all --annotate bash 2>/dev/null)
                 if [ -n "$_gwt_get_branches_output" ]; then
                     branches=$(echo "$_gwt_get_branches_output" | tr '\n' ' ')
@@ -121,8 +122,8 @@ gwt() {
         echo "$arg"
     }
 
-    # Normalize the branch argument if present for switch/remove commands
-    if [[ "$1" == "remove" || "$1" == "rm" || "$1" == "switch" || "$1" == "s" ]]; then
+    # Normalize the branch argument if present for switch/remove/fz commands
+    if [[ "$1" == "remove" || "$1" == "rm" || "$1" == "switch" || "$1" == "s" || "$1" == "fz" || "$1" == "f" ]]; then
         if [[ $# -ge 2 ]]; then
             set -- "$1" "$(_gwt_strip_visual "$2")" "${@:3}"
         fi
