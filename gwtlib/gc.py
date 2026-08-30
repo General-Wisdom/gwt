@@ -18,7 +18,12 @@ except ImportError:
 
 from gwtlib.config import get_repo_config
 from gwtlib.git_ops import is_worktree_dirty, run_git_command, run_git_quiet
-from gwtlib.parsing import get_main_branch_name, get_worktree_list
+from gwtlib.parsing import (
+    get_main_branch_name,
+    get_worktree_list,
+    parse_worktree_legacy,
+    parse_worktree_porcelain,
+)
 from gwtlib.paths import rel_display_path
 from gwtlib.ui import prompt_yes_no
 
@@ -169,6 +174,59 @@ def get_worktree_info_list(
     # Sort by age (oldest first)
     info_list.sort(key=lambda x: -x.age_days)
     return info_list
+
+
+def get_stale_worktree_registrations(git_dir: str) -> List[dict]:
+    """Return git-registered worktrees whose paths are stale or prunable."""
+    entries = parse_worktree_porcelain(git_dir, include_main=False)
+    if entries is None:
+        entries = parse_worktree_legacy(git_dir, include_main=False)
+
+    stale = []
+    for entry in entries or []:
+        path = entry.get("path")
+        if not path:
+            continue
+        if entry.get("prunable") or not os.path.isdir(path):
+            stale.append(entry)
+    return stale
+
+
+def _print_stale_worktree_registrations(stale: List[dict], git_dir: str) -> None:
+    """Print stale git worktree registrations with recovery context."""
+    if not stale:
+        return
+
+    print("Stale git worktree metadata detected:", file=sys.stderr)
+    for entry in stale:
+        branch = entry.get("branch") or "(detached)"
+        path = rel_display_path(entry["path"], git_dir, force_absolute=False)
+        print(f"  {branch}  [{path}]", file=sys.stderr)
+    print("Recommended fix: git worktree prune", file=sys.stderr)
+
+
+def maybe_prune_stale_worktree_registrations(
+    git_dir: str, yes: bool = False, plan_only: bool = False
+) -> bool:
+    """Offer to prune stale git worktree registrations.
+
+    Returns True if prune ran, False otherwise.
+    """
+    stale = get_stale_worktree_registrations(git_dir)
+    if not stale:
+        return False
+
+    _print_stale_worktree_registrations(stale, git_dir)
+    if plan_only:
+        print("Would run: git worktree prune", file=sys.stderr)
+        return False
+
+    if yes or prompt_yes_no("Run 'git worktree prune' now?"):
+        run_git_command(["worktree", "prune"], git_dir)
+        print("Pruned stale worktree metadata.", file=sys.stderr)
+        return True
+
+    return False
 
 
 @dataclass
@@ -450,6 +508,8 @@ def gc_worktrees(
         yes: Skip confirmation prompt.
         plan_only: Only print plan, don't execute.
     """
+    maybe_prune_stale_worktree_registrations(git_dir, yes=yes, plan_only=plan_only)
+
     # Create the plan
     plan = create_gc_plan(git_dir, clean_days=clean_days, delete_days=delete_days)
 

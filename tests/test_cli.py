@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -24,6 +25,16 @@ def _init_repo(repo: Path, env: dict):
         capture_output=True,
         text=True,
     )
+
+
+def _current_branch(repo: str) -> str:
+    result = subprocess.run(
+        ["git", "-C", repo, "rev-parse", "--abbrev-ref", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
 
 
 def test_cli_repo_sets_env_line(tmp_path):
@@ -82,6 +93,186 @@ def test_cli_switch_no_guess_missing_branch(tmp_path, git_env):
     res = _run_cli(tmp_path, ["switch", "--no-guess", "does-not-exist"], env=env)
     assert res.returncode != 0
     assert "invalid reference" in res.stderr
+
+
+def test_cli_switch_reports_branch_mismatch_in_existing_worktree_dir(tmp_path, git_env):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo, git_env)
+
+    subprocess.run(["git", "-C", str(repo), "branch", "feature-a"], env=git_env, check=True)
+    subprocess.run(["git", "-C", str(repo), "branch", "feature-b"], env=git_env, check=True)
+
+    import gwt as g
+
+    git_dir = str(repo / ".git")
+    wt_base = g.get_worktree_base(git_dir)
+    wt_path = os.path.join(wt_base, "feature-a")
+    g.create_worktree_for_branch("feature-a", git_dir, wt_path)
+
+    subprocess.run(
+        ["git", "-C", wt_path, "switch", "feature-b"],
+        env=git_env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+
+    gwt_script = Path(__file__).parent.parent / "gwt.py"
+    env_vars = git_env.copy()
+    env_vars["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
+    env_vars["GWT_GIT_DIR"] = git_dir
+
+    original_dir = os.getcwd()
+    try:
+        os.chdir(outside)
+        res = subprocess.run(
+            [sys.executable, str(gwt_script), "switch", "feature-a"],
+            env=env_vars,
+            input="n\n",
+            capture_output=True,
+            text=True,
+        )
+    finally:
+        os.chdir(original_dir)
+
+    assert res.returncode != 0
+    assert "has branch 'feature-b' checked out" in res.stderr
+    assert wt_path in res.stderr
+    assert "Recover manually" in res.stderr
+
+
+def test_cli_switch_can_switch_conflicting_worktree_back(tmp_path, git_env):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo, git_env)
+
+    subprocess.run(["git", "-C", str(repo), "branch", "feature-a"], env=git_env, check=True)
+    subprocess.run(["git", "-C", str(repo), "branch", "feature-b"], env=git_env, check=True)
+
+    import gwt as g
+
+    git_dir = str(repo / ".git")
+    wt_base = g.get_worktree_base(git_dir)
+    wt_path = os.path.join(wt_base, "feature-a")
+    g.create_worktree_for_branch("feature-a", git_dir, wt_path)
+
+    subprocess.run(
+        ["git", "-C", wt_path, "switch", "feature-b"],
+        env=git_env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    gwt_script = Path(__file__).parent.parent / "gwt.py"
+    env_vars = git_env.copy()
+    env_vars["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
+    env_vars["GWT_GIT_DIR"] = git_dir
+
+    original_dir = os.getcwd()
+    try:
+        os.chdir(outside)
+        res = subprocess.run(
+            [sys.executable, str(gwt_script), "switch", "feature-a"],
+            env=env_vars,
+            input="y\n",
+            capture_output=True,
+            text=True,
+        )
+    finally:
+        os.chdir(original_dir)
+
+    assert res.returncode == 0
+    assert res.stdout.strip() == f"cd {wt_path}"
+    assert _current_branch(wt_path) == "feature-a"
+
+
+def test_cli_switch_can_prune_stale_registration_and_recreate_worktree(tmp_path, git_env):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo, git_env)
+
+    subprocess.run(["git", "-C", str(repo), "branch", "feature"], env=git_env, check=True)
+
+    import gwt as g
+
+    git_dir = str(repo / ".git")
+    wt_base = g.get_worktree_base(git_dir)
+    wt_path = os.path.join(wt_base, "feature")
+    g.create_worktree_for_branch("feature", git_dir, wt_path)
+    shutil.rmtree(wt_path)
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    gwt_script = Path(__file__).parent.parent / "gwt.py"
+    env_vars = git_env.copy()
+    env_vars["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
+    env_vars["GWT_GIT_DIR"] = git_dir
+
+    original_dir = os.getcwd()
+    try:
+        os.chdir(outside)
+        res = subprocess.run(
+            [sys.executable, str(gwt_script), "switch", "feature"],
+            env=env_vars,
+            input="y\n",
+            capture_output=True,
+            text=True,
+        )
+    finally:
+        os.chdir(original_dir)
+
+    assert res.returncode == 0
+    assert res.stdout.strip() == f"cd {wt_path}"
+    assert os.path.isdir(wt_path)
+    assert "git worktree prune" in res.stderr
+
+
+def test_cli_switch_can_repair_broken_worktree_metadata(tmp_path, git_env):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo, git_env)
+
+    subprocess.run(["git", "-C", str(repo), "branch", "feature"], env=git_env, check=True)
+
+    import gwt as g
+
+    git_dir = str(repo / ".git")
+    wt_base = g.get_worktree_base(git_dir)
+    wt_path = os.path.join(wt_base, "feature")
+    g.create_worktree_for_branch("feature", git_dir, wt_path)
+    os.remove(os.path.join(wt_path, ".git"))
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    gwt_script = Path(__file__).parent.parent / "gwt.py"
+    env_vars = git_env.copy()
+    env_vars["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
+    env_vars["GWT_GIT_DIR"] = git_dir
+
+    original_dir = os.getcwd()
+    try:
+        os.chdir(outside)
+        res = subprocess.run(
+            [sys.executable, str(gwt_script), "switch", "feature"],
+            env=env_vars,
+            input="y\n",
+            capture_output=True,
+            text=True,
+        )
+    finally:
+        os.chdir(original_dir)
+
+    assert res.returncode == 0
+    assert res.stdout.strip() == f"cd {wt_path}"
+    assert _current_branch(wt_path) == "feature"
+    assert "git worktree repair" in res.stderr
 
 
 def test_cli_remove_flow(tmp_path, git_env):

@@ -22,11 +22,272 @@ from gwtlib.branches import (
     remote_branch_exists,
 )
 from gwtlib.config import get_repo_config
-from gwtlib.git_ops import is_worktree_dirty, run_git_command
+from gwtlib.git_ops import is_worktree_dirty, run_git_command, run_git_in_worktree
 from gwtlib.github import get_pr_state
-from gwtlib.parsing import get_main_branch_name, get_worktree_list
+from gwtlib.parsing import (
+    get_main_branch_name,
+    get_worktree_list,
+    parse_worktree_legacy,
+    parse_worktree_porcelain,
+)
 from gwtlib.paths import get_main_worktree_path, get_worktree_base
 from gwtlib.ui import prompt_yes_no
+
+
+def _get_git_worktree_entries(git_dir: str, include_main: bool = True) -> list[dict]:
+    """Return git-reported worktree entries, preserving stale registrations."""
+    entries = parse_worktree_porcelain(git_dir, include_main=include_main)
+    if entries is None:
+        entries = parse_worktree_legacy(git_dir, include_main=include_main)
+    return entries or []
+
+
+def _get_path_git_dir_status(worktree_path: str, git_dir: str) -> str:
+    """Classify an existing git directory as same repo, different repo, or broken."""
+    try:
+        result = run_git_in_worktree(["rev-parse", "--git-common-dir"], worktree_path)
+    except subprocess.CalledProcessError:
+        return "broken"
+
+    common_dir = result.stdout.strip()
+    if not common_dir:
+        return "broken"
+    if not os.path.isabs(common_dir):
+        common_dir = os.path.abspath(os.path.join(worktree_path, common_dir))
+    if os.path.abspath(common_dir) == os.path.abspath(git_dir):
+        return "same"
+    return "different"
+
+
+def _switch_existing_worktree_to_branch(branch_name: str, worktree_path: str) -> None:
+    """Switch an existing worktree back to the requested branch."""
+    try:
+        result = run_git_in_worktree(["switch", branch_name], worktree_path)
+        if result.stdout:
+            print(result.stdout, file=sys.stderr, end="")
+        if result.stderr:
+            print(result.stderr, file=sys.stderr, end="")
+        print(f"cd {worktree_path}")
+    except subprocess.CalledProcessError as e:
+        if e.stderr:
+            print(f"Error: {e.stderr.strip()}", file=sys.stderr)
+        elif e.stdout:
+            print(f"Error: {e.stdout.strip()}", file=sys.stderr)
+        else:
+            print(
+                f"Error: Failed to switch existing worktree at '{worktree_path}' "
+                f"back to branch '{branch_name}'.",
+                file=sys.stderr,
+            )
+        sys.exit(1)
+
+
+def _run_worktree_repair(git_dir: str, worktree_path: str) -> bool:
+    """Run `git worktree repair` and verify whether it fixed the path."""
+    result = subprocess.run(
+        ["git", f"--git-dir={git_dir}", "worktree", "repair", worktree_path],
+        capture_output=True,
+        text=True,
+    )
+    if result.stdout:
+        print(result.stdout, file=sys.stderr, end="")
+    if result.stderr:
+        print(result.stderr, file=sys.stderr, end="")
+    return _get_path_git_dir_status(worktree_path, git_dir) == "same"
+
+
+def _prompt_to_prune_stale_worktree(
+    branch_name: str, git_dir: str, worktree_path: str
+) -> None:
+    """Offer to prune stale git worktree metadata for a missing path."""
+    print(
+        (
+            f"Error: Branch '{branch_name}' is still registered to worktree path "
+            f"'{worktree_path}', but that directory does not exist."
+        ),
+        file=sys.stderr,
+    )
+    print(
+        "This repository has stale git worktree metadata.",
+        file=sys.stderr,
+    )
+    if prompt_yes_no("Run 'git worktree prune' now?"):
+        try:
+            run_git_command(["worktree", "prune"], git_dir)
+            print("Pruned stale worktree metadata. Continuing...", file=sys.stderr)
+            return
+        except subprocess.CalledProcessError as e:
+            handle_worktree_error(e, branch_name)
+    else:
+        print(
+            "Recover manually with: git worktree prune",
+            file=sys.stderr,
+        )
+    sys.exit(1)
+
+
+def _prompt_to_repair_worktree(
+    branch_name: str, git_dir: str, worktree_path: str
+) -> None:
+    """Offer to repair broken git worktree metadata for an existing path."""
+    print(
+        (
+            f"Error: Branch '{branch_name}' is still registered to worktree path "
+            f"'{worktree_path}', but that worktree's git metadata is broken."
+        ),
+        file=sys.stderr,
+    )
+    if prompt_yes_no("Run 'git worktree repair' now?"):
+        if _run_worktree_repair(git_dir, worktree_path):
+            print("Repaired git worktree metadata. Continuing...", file=sys.stderr)
+            return
+        print(
+            f"Error: Failed to repair worktree metadata at '{worktree_path}'.",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            f"Recover manually with: git worktree repair '{worktree_path}'",
+            file=sys.stderr,
+        )
+    sys.exit(1)
+
+
+def _handle_existing_worktree_path(
+    branch_name: str, git_dir: str, worktree_path: str, allow_repair: bool = True
+) -> bool:
+    """Handle an existing target path before attempting worktree creation."""
+    if not os.path.exists(worktree_path):
+        return False
+
+    git_marker = os.path.join(worktree_path, ".git")
+    if os.path.isdir(git_marker) or os.path.isfile(git_marker):
+        repo_status = _get_path_git_dir_status(worktree_path, git_dir)
+        if repo_status == "different":
+            print(
+                (
+                    f"Error: Cannot create worktree for branch '{branch_name}' because "
+                    f"'{worktree_path}' already exists and belongs to a different git "
+                    "repository."
+                ),
+                file=sys.stderr,
+            )
+            print(
+                "Recover manually by moving/removing that directory, or choosing a "
+                "different branch name.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        checked_out = None
+        if repo_status == "same":
+            try:
+                result = run_git_in_worktree(
+                    ["rev-parse", "--abbrev-ref", "HEAD"], worktree_path
+                )
+                checked_out = result.stdout.strip()
+            except subprocess.CalledProcessError:
+                checked_out = None
+
+        if checked_out == branch_name:
+            print(f"cd {worktree_path}")
+            return True
+
+        if checked_out and checked_out != branch_name:
+            print(
+                (
+                    f"Error: Cannot create worktree for branch '{branch_name}' at "
+                    f"'{worktree_path}' because that directory already exists and "
+                    f"has branch '{checked_out}' checked out."
+                ),
+                file=sys.stderr,
+            )
+            if prompt_yes_no(
+                f"Switch that worktree back to '{branch_name}' now?"
+            ):
+                _switch_existing_worktree_to_branch(branch_name, worktree_path)
+                return True
+            print(
+                "Recover manually by switching that worktree back, moving/removing "
+                "the directory, or choosing a different branch.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        if checked_out == "HEAD":
+            print(
+                (
+                    f"Error: Cannot create worktree for branch '{branch_name}' at "
+                    f"'{worktree_path}' because that directory already exists and is "
+                    "in detached HEAD state."
+                ),
+                file=sys.stderr,
+            )
+            if prompt_yes_no(f"Switch that worktree to '{branch_name}' now?"):
+                _switch_existing_worktree_to_branch(branch_name, worktree_path)
+                return True
+            print(
+                "Recover manually by checking out a branch there, moving/removing "
+                "the directory, or choosing a different branch.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        if allow_repair:
+            print(
+                (
+                    f"Error: Cannot create worktree for branch '{branch_name}' at "
+                    f"'{worktree_path}' because that directory looks like a worktree, "
+                    "but its git metadata is broken."
+                ),
+                file=sys.stderr,
+            )
+            if prompt_yes_no("Run 'git worktree repair' now?"):
+                if not _run_worktree_repair(git_dir, worktree_path):
+                    print(
+                        f"Error: Failed to repair worktree metadata at '{worktree_path}'.",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
+                return _handle_existing_worktree_path(
+                    branch_name, git_dir, worktree_path, allow_repair=False
+                )
+            print(
+                f"Recover manually with: git worktree repair '{worktree_path}'",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+    print(
+        (
+            f"Error: Cannot create worktree for branch '{branch_name}' because "
+            f"'{worktree_path}' already exists."
+        ),
+        file=sys.stderr,
+    )
+    print(
+        "Recover manually by moving/removing that directory, or choosing a "
+        "different branch name.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+
+def _fail_if_worktree_path_conflicts(branch_name: str, worktree_path: str) -> None:
+    """Fail fast with a clearer message when the target path already exists."""
+    print(
+        (
+            f"Error: Cannot create worktree for branch '{branch_name}' because "
+            f"'{worktree_path}' already exists."
+        ),
+        file=sys.stderr,
+    )
+    print(
+        "Recover manually by moving/removing that directory, or choosing a "
+        "different branch name.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
 
 
 def create_worktree_for_branch(branch_name, git_dir, worktree_path):
@@ -35,6 +296,8 @@ def create_worktree_for_branch(branch_name, git_dir, worktree_path):
     This creates the git worktree and then runs any post-create commands
     configured for this repository (e.g., npm install, pip install).
     """
+    if os.path.exists(worktree_path):
+        _fail_if_worktree_path_conflicts(branch_name, worktree_path)
     try:
         run_git_command(["worktree", "add", worktree_path, branch_name], git_dir)
         print(f"Created worktree at {worktree_path}", file=sys.stderr)
@@ -51,6 +314,8 @@ def create_tracking_worktree(branch_name, git_dir, remote_ref, worktree_path):
     This creates a local branch tracking the remote, creates the git worktree,
     and then runs any post-create commands configured for this repository.
     """
+    if os.path.exists(worktree_path):
+        _fail_if_worktree_path_conflicts(branch_name, worktree_path)
     try:
         # Create local branch tracking the remote
         run_git_command(
@@ -114,12 +379,29 @@ def switch_branch(branch_name, git_dir, create=False, force_create=False, guess=
             print(f"cd {main_path}")
             return
 
-    # Check if worktree already exists
+    # Check if git already has a worktree registered for this branch, including
+    # stale registrations that need pruning before we can continue.
+    for wt in _get_git_worktree_entries(git_dir, include_main=True):
+        if wt.get("branch") != branch_name:
+            continue
+        if wt.get("prunable") and os.path.isdir(wt["path"]):
+            _prompt_to_repair_worktree(branch_name, git_dir, wt["path"])
+        if os.path.isdir(wt["path"]):
+            if _handle_existing_worktree_path(branch_name, git_dir, wt["path"]):
+                return
+            return
+        _prompt_to_prune_stale_worktree(branch_name, git_dir, wt["path"])
+
+    # Check if worktree already exists via directory scanning too; this covers
+    # cases where the path is usable but git metadata is out of sync.
     worktrees = get_worktree_list(git_dir, include_main=True)
     for wt in worktrees:
         if wt["branch"] == branch_name:
-            print(f"cd {wt['path']}")
-            return
+            if os.path.isdir(wt["path"]):
+                if _handle_existing_worktree_path(branch_name, git_dir, wt["path"]):
+                    return
+                return
+            _prompt_to_prune_stale_worktree(branch_name, git_dir, wt["path"])
 
     # Handle create flags
     if force_create:
@@ -128,6 +410,8 @@ def switch_branch(branch_name, git_dir, create=False, force_create=False, guess=
             run_git_command(["branch", "-f", branch_name], git_dir)
         except subprocess.CalledProcessError:
             run_git_command(["branch", branch_name], git_dir)
+        if _handle_existing_worktree_path(branch_name, git_dir, worktree_path):
+            return
         create_worktree_for_branch(branch_name, git_dir, worktree_path)
         return
 
@@ -135,6 +419,8 @@ def switch_branch(branch_name, git_dir, create=False, force_create=False, guess=
         # Create new branch
         try:
             run_git_command(["branch", branch_name], git_dir)
+            if _handle_existing_worktree_path(branch_name, git_dir, worktree_path):
+                return
             create_worktree_for_branch(branch_name, git_dir, worktree_path)
             return
         except subprocess.CalledProcessError:
@@ -149,6 +435,8 @@ def switch_branch(branch_name, git_dir, create=False, force_create=False, guess=
             f"Branch '{branch_name}' exists locally but has no worktree. Creating worktree...",
             file=sys.stderr,
         )
+        if _handle_existing_worktree_path(branch_name, git_dir, worktree_path):
+            return
         create_worktree_for_branch(branch_name, git_dir, worktree_path)
         return
 
@@ -156,6 +444,8 @@ def switch_branch(branch_name, git_dir, create=False, force_create=False, guess=
     if guess:
         remote_ref = find_remote_branch(branch_name, git_dir)
         if remote_ref:
+            if _handle_existing_worktree_path(branch_name, git_dir, worktree_path):
+                return
             create_tracking_worktree(branch_name, git_dir, remote_ref, worktree_path)
             return
 
