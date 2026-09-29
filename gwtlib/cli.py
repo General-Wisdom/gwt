@@ -56,6 +56,14 @@ def main():
     remove_parser.add_argument(
         "branch_name", help="Name of the branch worktree to remove"
     )
+    remove_parser.add_argument(
+        "--local-only",
+        action="store_true",
+        help=(
+            "Only remove the local worktree/branch; never touch the remote "
+            "branch or PR (also cleans up worktrees deleted outside gwt)"
+        ),
+    )
 
     # Create a 'list' subcommand that's implicit if no command is provided
     list_parser = subparsers.add_parser(
@@ -326,7 +334,9 @@ def main():
             guess=getattr(args, "guess", True),
         )
     elif args.command in ["remove", "rm"]:
-        remove_worktree(args.branch_name, git_dir)
+        remove_worktree(
+            args.branch_name, git_dir, local_only=getattr(args, "local_only", False)
+        )
     elif args.command in ["fz", "f"]:
         sys.exit(
             fuzzy_pick(

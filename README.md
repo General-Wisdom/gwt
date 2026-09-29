@@ -28,6 +28,9 @@ An opinionated tool for rapidly working in git worktrees. `gwt` works like `git 
   - Creates worktree for existing local branch (and runs post-create commands)
   - Auto-tracks remote branches (with --guess, enabled by default)
   - Shows helpful error if branch doesn't exist
+  - Recovers a worktree whose directory was deleted outside gwt (it prunes
+    the stale registration and recreates the worktree from the local branch,
+    or from the remote branch if the local branch is also gone)
   
   (supports tab completion of ALL branches: worktrees, local, and remote)
 
@@ -49,6 +52,16 @@ An opinionated tool for rapidly working in git worktrees. `gwt` works like `git 
   - **Pushed but PR not merged**: Shows warning, prompts for each deletion
   
   This requires the `gh` CLI for PR status detection.
+
+- Remove only local state, keeping the remote branch/PR intact
+
+  `gwt rm --local-only branch-name`
+
+  Removes the worktree and optionally the local branch, but **never** touches
+  the remote branch or its PR. This is the right command after a worktree
+  directory was deleted by hand (e.g. `rm -rf`): gwt prunes git's stale
+  registration of the dead worktree and cleans up the local branch, leaving
+  the remote branch untouched. It also works on live worktrees.
 
 - Garbage-collect stale worktrees
 
@@ -267,6 +280,19 @@ The removal behavior is context-aware:
 - If the PR has been merged, `gwt rm` automatically cleans up the worktree, local branch, and remote branch
 - If the branch was never pushed to a remote, it removes the worktree and prompts about the local branch
 - If the branch is pushed but the PR isn't merged, it warns you and prompts for confirmation before each deletion
+
+Remove only local state — the remote branch and PR are never touched:
+
+```bash
+gwt rm --local-only branch-name
+```
+
+`--local-only` removes the worktree and optionally the local branch (it
+prompts, defaulting to keep). Use it when you deleted a worktree directory
+by hand (`rm -rf`) and want gwt to forget it locally without touching the
+remote branch — or when you simply want a worktree gone locally while the
+PR stays open. Later, `gwt switch branch-name` recreates the worktree from
+the remote branch.
 
 Fuzzy-find a worktree and switch to it:
 ```

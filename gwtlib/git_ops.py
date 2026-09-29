@@ -25,6 +25,17 @@ def is_worktree_dirty(worktree_path: str, include_untracked: bool = True) -> boo
         return True  # Fail closed: assume dirty if we can't check
 
 
+def prune_stale_worktrees(git_dir):
+    """Prune worktree registrations whose directories no longer exist.
+
+    When a worktree directory is deleted outside gwt (e.g. `rm -rf`), git
+    keeps its registration and marks it prunable. `--expire now` drops every
+    such dead registration immediately; live worktrees and branch refs are
+    never touched.
+    """
+    run_git_command(["worktree", "prune", "--expire", "now"], git_dir)
+
+
 def run_git_command(cmd_args, git_dir, capture=True):
     """Execute git commands with specified git directory."""
     cmd = ["git", f"--git-dir={git_dir}"] + cmd_args

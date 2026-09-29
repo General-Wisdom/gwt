@@ -29,7 +29,7 @@ from gwtlib.display import ColorMode
 from gwtlib.parsing import parse_worktree_legacy, parse_worktree_porcelain
 from gwtlib.paths import is_path_current_worktree
 from gwtlib.tree import _color_enabled, show_tree
-from gwtlib.worktrees import remove_worktree
+from gwtlib.worktrees import remove_worktree, switch_branch
 
 # Each action maps onto a command gwt already has.
 ACTIONS = ["switch", "path", "tree", "remove"]
@@ -325,6 +325,17 @@ def _perform(action, entry, git_dir, color):
     branch = entry.get("branch")
 
     if action == "switch":
+        if (
+            not os.path.isdir(path)
+            and branch
+            and not entry.get("detached")
+            and not entry.get("is_main")
+        ):
+            # Worktree dir was deleted outside gwt; recover through the shared
+            # switch logic (prunes the stale registration, recreates, and
+            # prints the `cd` line itself).
+            switch_branch(branch, git_dir)
+            return 0
         # The shell wrapper turns a lone `cd <path>` on stdout into a real cd.
         print(f"cd {path}")
         return 0
