@@ -56,7 +56,9 @@ An opinionated tool for rapidly working in git worktrees. `gwt` works like `git 
 
   Runs a clean command (e.g. `just clean`) on worktrees older than `--clean-days`
   (7) and removes ones older than `--delete-days` (28) that are clean and merged.
-  Use `-p`/`--plan` to preview, `-y` to skip the confirmation prompt.
+  Activity is based on tracked and non-ignored untracked files, so ignored build
+  artifacts and caches do not keep a stale worktree alive. Use `-p`/`--plan` to
+  preview, `-y` to skip the confirmation prompt.
 
 - Switch to a different repo
 

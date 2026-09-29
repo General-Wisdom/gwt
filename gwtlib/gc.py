@@ -17,7 +17,12 @@ except ImportError:
     tqdm = None  # type: ignore
 
 from gwtlib.config import get_repo_config
-from gwtlib.git_ops import is_worktree_dirty, run_git_command, run_git_quiet
+from gwtlib.git_ops import (
+    is_worktree_dirty,
+    run_git_command,
+    run_git_in_worktree,
+    run_git_quiet,
+)
 from gwtlib.parsing import get_main_branch_name, get_worktree_list
 from gwtlib.paths import rel_display_path
 from gwtlib.ui import prompt_yes_no
@@ -65,12 +70,10 @@ class WorktreeInfo:
 
 
 def get_worktree_mtime(worktree_path: str) -> float:
-    """Get the most recent modification time of any file in a worktree.
+    """Get the most recent modification time of relevant files in a worktree.
 
-    Walks the directory tree and finds the most recently modified file,
-    excluding:
-    - .git directory/file (git internal state changes aren't real work)
-    - Directory mtimes (change during housekeeping like `just clean`)
+    Considers tracked files and untracked files that are not ignored by Git.
+    Ignored files, Git metadata, and directory mtimes do not count as activity.
 
     Fallback order for empty worktrees:
     1. .git file mtime (reflects worktree creation, unaffected by housekeeping)
@@ -82,24 +85,32 @@ def get_worktree_mtime(worktree_path: str) -> float:
     most_recent: float | None = None
     worktree_path = os.path.abspath(worktree_path)
 
-    for root, dirs, files in os.walk(worktree_path):
-        # Skip .git directory
-        if ".git" in dirs:
-            dirs.remove(".git")
+    try:
+        result = run_git_in_worktree(
+            ["ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+            worktree_path,
+        )
+        files = (path for path in result.stdout.split("\0") if path)
+    except subprocess.CalledProcessError as e:
+        print(
+            f"Warning: could not list non-ignored files in {worktree_path}: {e}",
+            file=sys.stderr,
+        )
+        # Treat a worktree we cannot inspect as active so it cannot be selected
+        # for automatic cleanup or deletion.
+        return time.time()
 
-        # Check file modification times (excluding .git file in worktrees)
-        for filename in files:
-            # Skip .git file (worktrees have a .git file pointing to the real git dir)
-            if filename == ".git" and root == worktree_path:
+    for filename in files:
+        try:
+            filepath = os.path.join(worktree_path, filename)
+            if os.path.isdir(filepath) and not os.path.islink(filepath):
                 continue
-            try:
-                filepath = os.path.join(root, filename)
-                file_mtime = os.path.getmtime(filepath)
-                most_recent = (
-                    file_mtime if most_recent is None else max(most_recent, file_mtime)
-                )
-            except OSError:
-                pass
+            file_mtime = os.path.getmtime(filepath)
+            most_recent = (
+                file_mtime if most_recent is None else max(most_recent, file_mtime)
+            )
+        except OSError:
+            pass
 
     # Fallback to .git file mtime (reflects worktree creation, not housekeeping)
     if most_recent is None:
