@@ -8,11 +8,12 @@ from gwtlib import cli, gc
 GIT_DIR = '/example/repo.git'
 
 
-def _assert_thresholds(plan, clean_days, delete_days):
+def _assert_thresholds(plan, clean_days, delete_days, merged_pr_days=1):
     plan.assert_called_once()
     assert plan.call_args.args == (GIT_DIR,)
     assert plan.call_args.kwargs['clean_days'] == clean_days
     assert plan.call_args.kwargs['delete_days'] == delete_days
+    assert plan.call_args.kwargs['merged_pr_days'] == merged_pr_days
 
 
 @pytest.fixture
@@ -81,6 +82,32 @@ def plan_mock(monkeypatch):
             [],
             (2, 28),
         ),
+        ({'gc': {'merged_pr_days': 3}}, [], (7, 28, 3)),
+        (
+            {
+                'gc': {'clean_days': 10, 'merged_pr_days': 3},
+                'repos': {GIT_DIR: {'gc': {'merged_pr_days': 2}}},
+            },
+            [],
+            (10, 28, 2),
+        ),
+        ({'repos': {GIT_DIR: {'gc': {'merged_pr_days': 0}}}}, [], (7, 28, 0)),
+        (
+            {
+                'gc': {'clean_days': 10, 'delete_days': 35, 'merged_pr_days': 3},
+                'repos': {GIT_DIR: {'gc': {'delete_days': 14, 'merged_pr_days': 2}}},
+            },
+            ['--merged-pr-days', '0'],
+            (10, 14, 0),
+        ),
+        (
+            {
+                'gc': {'merged_pr_days': 3},
+                'repos': {'/another/repo.git': {'gc': {'merged_pr_days': 0}}},
+            },
+            [],
+            (7, 28, 3),
+        ),
     ],
 )
 def test_cli_resolves_each_threshold_independently(
@@ -93,8 +120,17 @@ def test_cli_resolves_each_threshold_independently(
 
 
 def test_programmatic_gc_call_uses_config_when_arguments_are_omitted(
-    set_config, plan_mock
+    set_config, plan_mock, monkeypatch
 ):
-    set_config({'gc': {'clean_days': 10, 'delete_days': 35}})
+    set_config({'gc': {'clean_days': 10, 'delete_days': 35, 'merged_pr_days': 3}})
+    display = Mock()
+    monkeypatch.setattr(gc, 'print_plan', display)
     gc.gc_worktrees(GIT_DIR, plan_only=True)
-    _assert_thresholds(plan_mock, 10, 35)
+    _assert_thresholds(plan_mock, 10, 35, 3)
+    display.assert_called_once_with(
+        plan_mock.return_value,
+        GIT_DIR,
+        clean_days=10,
+        delete_days=35,
+        merged_pr_days=3,
+    )

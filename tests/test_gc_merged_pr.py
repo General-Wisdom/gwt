@@ -86,6 +86,24 @@ def test_covered_pr_under_one_day_is_kept(planning_environment, monkeypatch):
     assert 'recent' not in [wt.branch for wt in plan.to_delete]
 
 
+@pytest.mark.parametrize('merged_pr_days', [0, 3, 40])
+def test_covered_pr_uses_configured_age_and_normal_age_cap(
+    planning_environment, monkeypatch, capsys, merged_pr_days
+):
+    root, _, _ = planning_environment
+    threshold = min(28, merged_pr_days)
+    _merged_branches(monkeypatch, ['recent'])
+    _file(root / 'recent' / 'src' / 'source.py', NOW - threshold * DAY)
+    plan = gc.create_gc_plan('repo.git', merged_pr_days=merged_pr_days)
+    assert 'recent' in [wt.branch for wt in plan.to_delete]
+    gc.print_plan(plan, 'repo.git', 7, 28, merged_pr_days=merged_pr_days)
+    assert f'{threshold}d for covered merged PRs' in capsys.readouterr().err
+
+    _file(root / 'recent' / 'src' / 'source.py', NOW - (threshold - 0.5) * DAY)
+    plan = gc.create_gc_plan('repo.git', merged_pr_days=merged_pr_days)
+    assert 'recent' not in [wt.branch for wt in plan.to_delete]
+
+
 def test_new_commits_restore_normal_threshold(planning_environment, monkeypatch):
     root, _, _ = planning_environment
     _file(root / 'recent' / 'src' / 'source.py', NOW - 2 * DAY)

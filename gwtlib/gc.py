@@ -83,8 +83,11 @@ def _get_covered_branch_head(
 
 
 def _resolve_gc_thresholds(
-    git_dir: str, clean_days: int | None, delete_days: int | None
-) -> tuple[int, int]:
+    git_dir: str,
+    clean_days: int | None,
+    delete_days: int | None,
+    merged_pr_days: int | None,
+) -> tuple[int, int, int]:
     """Resolve CLI, repository, user, then built-in GC day thresholds."""
     config = load_config()
     user_gc = config.get('gc', {})
@@ -98,6 +101,12 @@ def _resolve_gc_thresholds(
         if delete_days is not None
         else repo_gc.get(
             'delete_days', user_gc.get('delete_days', DELETE_THRESHOLD_DAYS)
+        ),
+        merged_pr_days
+        if merged_pr_days is not None
+        else repo_gc.get(
+            'merged_pr_days',
+            user_gc.get('merged_pr_days', MERGED_PR_DELETE_THRESHOLD_DAYS),
         ),
     )
 
@@ -255,6 +264,7 @@ def create_gc_plan(
     git_dir: str,
     clean_days: int = CLEAN_THRESHOLD_DAYS,
     delete_days: int = DELETE_THRESHOLD_DAYS,
+    merged_pr_days: int = MERGED_PR_DELETE_THRESHOLD_DAYS,
 ) -> GcPlan:
     """Create a garbage collection plan.
 
@@ -262,6 +272,8 @@ def create_gc_plan(
         git_dir: Path to the git directory.
         clean_days: Threshold for cleaning (default 7 days).
         delete_days: Threshold for deletion (default 28 days).
+        merged_pr_days: Deletion age for covered merged PRs (default 1 day),
+            capped by delete_days.
 
     Returns:
         GcPlan with categorized worktrees.
@@ -269,7 +281,7 @@ def create_gc_plan(
     worktrees = get_worktree_info_list(
         git_dir,
         include_main=False,
-        merged_pr_days=MERGED_PR_DELETE_THRESHOLD_DAYS,
+        merged_pr_days=merged_pr_days,
     )
 
     to_clean = []
@@ -280,7 +292,7 @@ def create_gc_plan(
 
     for wt in worktrees:
         threshold = (
-            min(delete_days, MERGED_PR_DELETE_THRESHOLD_DAYS)
+            min(delete_days, merged_pr_days)
             if wt.merged_pr is not None
             else delete_days
         )
@@ -340,7 +352,13 @@ def _format_worktree_line(wt: WorktreeInfo, git_dir: str, suffix: str = "") -> s
         return f"  {wt.branch}  ({age}){suffix}  [{path_display}]"
 
 
-def print_plan(plan: GcPlan, git_dir: str, clean_days: int, delete_days: int) -> None:
+def print_plan(
+    plan: GcPlan,
+    git_dir: str,
+    clean_days: int,
+    delete_days: int,
+    merged_pr_days: int = MERGED_PR_DELETE_THRESHOLD_DAYS,
+) -> None:
     """Print the garbage collection plan to stderr."""
     total = (
         len(plan.to_clean)
@@ -379,7 +397,7 @@ def print_plan(plan: GcPlan, git_dir: str, clean_days: int, delete_days: int) ->
         print(
             f"\nWill delete {len(plan.to_delete)} worktrees eligible by age "
             f"({delete_days}d normally, "
-            f"{min(delete_days, MERGED_PR_DELETE_THRESHOLD_DAYS)}d for covered merged PRs):",
+            f"{min(delete_days, merged_pr_days)}d for covered merged PRs):",
             file=sys.stderr,
         )
         for wt in plan.to_delete:
@@ -547,6 +565,7 @@ def gc_worktrees(
     clean_cmd: Optional[str] = None,
     yes: bool = False,
     plan_only: bool = False,
+    merged_pr_days: int | None = None,
 ) -> None:
     """Run garbage collection on worktrees.
 
@@ -557,14 +576,28 @@ def gc_worktrees(
         clean_cmd: Custom clean command.
         yes: Skip confirmation prompt.
         plan_only: Only print plan, don't execute.
+        merged_pr_days: Override configured merged-PR deletion age (fallback 1 day).
     """
-    clean_days, delete_days = _resolve_gc_thresholds(git_dir, clean_days, delete_days)
+    clean_days, delete_days, merged_pr_days = _resolve_gc_thresholds(
+        git_dir, clean_days, delete_days, merged_pr_days
+    )
 
     # Create the plan
-    plan = create_gc_plan(git_dir, clean_days=clean_days, delete_days=delete_days)
+    plan = create_gc_plan(
+        git_dir,
+        clean_days=clean_days,
+        delete_days=delete_days,
+        merged_pr_days=merged_pr_days,
+    )
 
     # Print the plan
-    print_plan(plan, git_dir, clean_days=clean_days, delete_days=delete_days)
+    print_plan(
+        plan,
+        git_dir,
+        clean_days=clean_days,
+        delete_days=delete_days,
+        merged_pr_days=merged_pr_days,
+    )
 
     # Check if there's anything to do
     if not plan.to_clean and not plan.to_delete:
