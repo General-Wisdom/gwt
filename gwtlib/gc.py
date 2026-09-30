@@ -57,31 +57,18 @@ def _resolve_gc_thresholds(
     """Resolve CLI, repository, user, then built-in GC day thresholds."""
     config = load_config()
     user_gc = config.get('gc', {})
-    repos = config.get('repos', {})
-    if not isinstance(repos, dict):
-        raise ValueError('repos must be a TOML table')
-    repo = repos.get(git_dir, {})
-    if not isinstance(repo, dict):
-        raise ValueError(f'repos.{git_dir} must be a TOML table')
+    repo = config.get('repos', {}).get(git_dir, {})
     repo_gc = repo.get('gc', {})
-    for name, table in [('gc', user_gc), (f'repos.{git_dir}.gc', repo_gc)]:
-        if not isinstance(table, dict):
-            raise ValueError(f'{name} must be a TOML table')
-
-    resolved = []
-    for name, explicit, default in [
-        ('clean_days', clean_days, CLEAN_THRESHOLD_DAYS),
-        ('delete_days', delete_days, DELETE_THRESHOLD_DAYS),
-    ]:
-        value = (
-            explicit
-            if explicit is not None
-            else repo_gc.get(name, user_gc.get(name, default))
-        )
-        if type(value) is not int or value < 0:
-            raise ValueError(f'GC {name} must be a nonnegative integer number of days')
-        resolved.append(value)
-    return resolved[0], resolved[1]
+    return (
+        clean_days
+        if clean_days is not None
+        else repo_gc.get('clean_days', user_gc.get('clean_days', CLEAN_THRESHOLD_DAYS)),
+        delete_days
+        if delete_days is not None
+        else repo_gc.get(
+            'delete_days', user_gc.get('delete_days', DELETE_THRESHOLD_DAYS)
+        ),
+    )
 
 
 @dataclass

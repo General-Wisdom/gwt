@@ -369,14 +369,11 @@ def main():
                 absolute=getattr(args, "absolute", False),
             )
     elif args.command == "gc":
-        try:
-            gc_worktrees(
-                git_dir,
-                clean_days=args.clean_days,
-                delete_days=args.delete_days,
-                clean_cmd=getattr(args, "clean_cmd", None),
-                yes=getattr(args, "yes", False),
-                plan_only=getattr(args, "plan", False),
-            )
-        except ValueError as error:
-            gc_parser.error(str(error))
+        gc_worktrees(
+            git_dir,
+            clean_days=args.clean_days,
+            delete_days=args.delete_days,
+            clean_cmd=getattr(args, "clean_cmd", None),
+            yes=getattr(args, "yes", False),
+            plan_only=getattr(args, "plan", False),
+        )

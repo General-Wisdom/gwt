@@ -217,7 +217,7 @@ delete_days = 14
 #### Configuration Options
 
 - `default_repo`: Path to the git directory to use by default when `GWT_GIT_DIR` is not set
-- `gc.clean_days` and `gc.delete_days`: User-wide GC age thresholds in nonnegative integer days, with built-in defaults of 7 and 28. Zero is allowed. Ages measure the most recent file modification, including build output.
+- `gc.clean_days` and `gc.delete_days`: User-wide GC age thresholds in integer days, with built-in defaults of 7 and 28. Zero is allowed. Ages measure the most recent file modification, including build output.
 - `repos.<git-dir>.gc.clean_days` and `repos.<git-dir>.gc.delete_days`: Optional repository overrides. Each setting resolves independently: explicit CLI option, repository override, user-wide value, then built-in default.
 - `repos.<git-dir>.post_create_commands`: List of shell commands to run after creating a new worktree. These commands run in the newly created worktree directory. Post-create commands run whenever `gwt switch` creates a worktree (for local branches, remote branches, or new branches with `-c`).
 

@@ -75,13 +75,13 @@ def plan_mock(monkeypatch):
             (10, 28),
         ),
         (
-            {'gc': {'clean_days': -1}},
+            {'gc': {'clean_days': 10}},
             ['--clean-days', '0'],
             (0, 28),
         ),
         (
             {
-                'gc': {'clean_days': -1},
+                'gc': {'clean_days': 10},
                 'repos': {GIT_DIR: {'gc': {'clean_days': 2}}},
             },
             [],
@@ -96,57 +96,6 @@ def test_cli_resolves_each_threshold_independently(
     monkeypatch.setattr(sys, 'argv', ['gwt', 'gc', '--plan', *options])
     cli.main()
     _assert_thresholds(plan_mock, *expected)
-
-
-@pytest.mark.parametrize('key', ['clean_days', 'delete_days'])
-@pytest.mark.parametrize('value', [-1, True, False, 1.5, '7'])
-def test_invalid_config_threshold_fails_before_planning(
-    write_config, plan_mock, monkeypatch, capsys, key, value
-):
-    write_config({'gc': {key: value}})
-    monkeypatch.setattr(sys, 'argv', ['gwt', 'gc', '--plan'])
-    with pytest.raises(SystemExit) as error:
-        cli.main()
-    assert error.value.code == 2
-    assert key in capsys.readouterr().err
-    plan_mock.assert_not_called()
-
-
-@pytest.mark.parametrize(
-    'settings, message',
-    [
-        ({'gc': 7}, 'gc must be a TOML table'),
-        ({'repos': 7}, 'repos must be a TOML table'),
-        ({'repos': {GIT_DIR: 7}}, f'repos.{GIT_DIR} must be a TOML table'),
-        (
-            {'repos': {GIT_DIR: {'gc': 7}}},
-            f'repos.{GIT_DIR}.gc must be a TOML table',
-        ),
-    ],
-)
-def test_invalid_config_table_fails_before_planning(
-    write_config, plan_mock, monkeypatch, capsys, settings, message
-):
-    write_config(settings)
-    monkeypatch.setattr(sys, 'argv', ['gwt', 'gc', '--plan'])
-    with pytest.raises(SystemExit) as error:
-        cli.main()
-    assert error.value.code == 2
-    assert message in capsys.readouterr().err
-    plan_mock.assert_not_called()
-
-
-@pytest.mark.parametrize('option', ['--clean-days', '--delete-days'])
-def test_negative_cli_threshold_fails_before_planning(
-    write_config, plan_mock, monkeypatch, capsys, option
-):
-    write_config({})
-    monkeypatch.setattr(sys, 'argv', ['gwt', 'gc', '--plan', option, '-1'])
-    with pytest.raises(SystemExit) as error:
-        cli.main()
-    assert error.value.code == 2
-    assert 'nonnegative integer' in capsys.readouterr().err
-    plan_mock.assert_not_called()
 
 
 def test_programmatic_gc_call_uses_config_when_arguments_are_omitted(
