@@ -181,14 +181,14 @@ def main():
     gc_parser.add_argument(
         "--clean-days",
         type=int,
-        default=7,
-        help="Days before a worktree is marked for cleaning (default: 7)",
+        default=None,
+        help="Days before cleaning (default: configured value or 7)",
     )
     gc_parser.add_argument(
         "--delete-days",
         type=int,
-        default=28,
-        help="Days before a worktree is marked for deletion (default: 28)",
+        default=None,
+        help="Days before deletion (default: configured value or 28)",
     )
     gc_parser.add_argument(
         "--clean-cmd",
@@ -371,8 +371,8 @@ def main():
     elif args.command == "gc":
         gc_worktrees(
             git_dir,
-            clean_days=getattr(args, "clean_days", 7),
-            delete_days=getattr(args, "delete_days", 28),
+            clean_days=args.clean_days,
+            delete_days=args.delete_days,
             clean_cmd=getattr(args, "clean_cmd", None),
             yes=getattr(args, "yes", False),
             plan_only=getattr(args, "plan", False),

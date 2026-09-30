@@ -16,7 +16,7 @@ except ImportError:
     HAS_TQDM = False
     tqdm = None  # type: ignore
 
-from gwtlib.config import get_repo_config
+from gwtlib.config import get_repo_config, load_config
 from gwtlib.git_ops import (
     is_worktree_dirty,
     run_git_command,
@@ -80,6 +80,26 @@ def _get_covered_branch_head(
         return None
     except subprocess.CalledProcessError:
         return None
+
+
+def _resolve_gc_thresholds(
+    git_dir: str, clean_days: int | None, delete_days: int | None
+) -> tuple[int, int]:
+    """Resolve CLI, repository, user, then built-in GC day thresholds."""
+    config = load_config()
+    user_gc = config.get('gc', {})
+    repo = config.get('repos', {}).get(git_dir, {})
+    repo_gc = repo.get('gc', {})
+    return (
+        clean_days
+        if clean_days is not None
+        else repo_gc.get('clean_days', user_gc.get('clean_days', CLEAN_THRESHOLD_DAYS)),
+        delete_days
+        if delete_days is not None
+        else repo_gc.get(
+            'delete_days', user_gc.get('delete_days', DELETE_THRESHOLD_DAYS)
+        ),
+    )
 
 
 @dataclass
@@ -522,8 +542,8 @@ def execute_gc_plan(
 
 def gc_worktrees(
     git_dir: str,
-    clean_days: int = CLEAN_THRESHOLD_DAYS,
-    delete_days: int = DELETE_THRESHOLD_DAYS,
+    clean_days: int | None = None,
+    delete_days: int | None = None,
     clean_cmd: Optional[str] = None,
     yes: bool = False,
     plan_only: bool = False,
@@ -532,12 +552,14 @@ def gc_worktrees(
 
     Args:
         git_dir: Path to the git directory.
-        clean_days: Threshold in days for cleaning (default 7).
-        delete_days: Threshold in days for deletion (default 28).
+        clean_days: Override configured cleaning age (fallback 7 days).
+        delete_days: Override configured deletion age (fallback 28 days).
         clean_cmd: Custom clean command.
         yes: Skip confirmation prompt.
         plan_only: Only print plan, don't execute.
     """
+    clean_days, delete_days = _resolve_gc_thresholds(git_dir, clean_days, delete_days)
+
     # Create the plan
     plan = create_gc_plan(git_dir, clean_days=clean_days, delete_days=delete_days)
 
