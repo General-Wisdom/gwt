@@ -56,6 +56,10 @@ An opinionated tool for rapidly working in git worktrees. `gwt` works like `git 
 
   Runs a clean command (e.g. `just clean`) on worktrees older than `--clean-days`
   (7) and removes ones older than `--delete-days` (28) that are clean and merged.
+  Branches whose commits are all reachable from local main use `--merged-days`
+  (28 by default), capped by the ordinary deletion age. Set it to 1 for earlier
+  removal of merged branches. Ages measure the latest file modification,
+  including build output. The cleaning threshold stays unchanged.
   Use `-p`/`--plan` to preview, `-y` to skip the confirmation prompt.
 
 - Switch to a different repo
@@ -188,10 +192,11 @@ Example configuration:
 # Default repository to use if GWT_GIT_DIR env var isn't set
 default_repo = "/path/to/default/repo.git"
 
-# User-wide GC defaults (built-in defaults are 7 and 28 days)
+# User-wide GC defaults (built-in defaults are 7, 28, and 28 days)
 [gc]
 clean_days = 10
 delete_days = 35
+merged_days = 1
 
 # Repository-specific configurations
 [repos."/path/to/repo1.git"]
@@ -209,16 +214,18 @@ post_create_commands = [
     "pre-commit install"
 ]
 
-# Override either GC setting for one repository; omitted values inherit [gc]
+# Override GC settings for one repository; omitted values inherit [gc]
 [repos."/path/to/repo2.git".gc]
 delete_days = 14
+merged_days = 0
 ```
 
 #### Configuration Options
 
 - `default_repo`: Path to the git directory to use by default when `GWT_GIT_DIR` is not set
 - `gc.clean_days` and `gc.delete_days`: User-wide GC age thresholds in integer days, with built-in defaults of 7 and 28. Zero is allowed. Ages measure the most recent file modification, including build output.
-- `repos.<git-dir>.gc.clean_days` and `repos.<git-dir>.gc.delete_days`: Optional repository overrides. Each setting resolves independently: explicit CLI option, repository override, user-wide value, then built-in default.
+- `gc.merged_days`: User-wide deletion age for branches merged into local main, defaulting to 28 days and capped by `gc.delete_days`. Set it to 1 for earlier removal, as in the example above. Zero allows immediate removal when the other deletion checks pass.
+- `repos.<git-dir>.gc.clean_days`, `repos.<git-dir>.gc.delete_days`, and `repos.<git-dir>.gc.merged_days`: Optional repository overrides. Each setting resolves independently: explicit CLI option, repository override, user-wide value, then built-in default.
 - `repos.<git-dir>.post_create_commands`: List of shell commands to run after creating a new worktree. These commands run in the newly created worktree directory. Post-create commands run whenever `gwt switch` creates a worktree (for local branches, remote branches, or new branches with `-c`).
 
 The configuration file is created automatically when you first use the `gwt --repo` command. You can then edit it manually to add post-create commands or other settings.
