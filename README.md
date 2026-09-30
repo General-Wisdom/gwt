@@ -63,6 +63,10 @@ An opinionated tool for rapidly working in git worktrees. `gwt` works like `git 
   The cleaning threshold stays unchanged. Git's safe branch deletion may retain
   a squash-merged branch after its worktree is removed.
   Use `-p`/`--plan` to preview, `-y` to skip the confirmation prompt.
+  Timestamp scans use up to eight worker processes (limited by CPU count).
+  Use `--workers N` to adjust this limit, or `--workers 1` for serial scanning.
+  New scans receive hints learned by completed scans in the same run; scans
+  already running keep their initial hints. Cleaning and removal stay sequential.
 
 - Switch to a different repo
 

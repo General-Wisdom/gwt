@@ -6,7 +6,7 @@ import sys
 from gwtlib.config import HAS_TOML, get_config_path, load_config, save_config
 from gwtlib.display import list_all_branches, list_worktrees
 from gwtlib.fuzzy import ACTIONS, DEFAULT_ACTION, fuzzy_pick
-from gwtlib.gc import gc_worktrees
+from gwtlib.gc import DEFAULT_GC_WORKERS, gc_worktrees
 from gwtlib.resolution import get_git_dir, get_git_dir_with_source
 from gwtlib.tree import show_tree
 from gwtlib.worktrees import remove_worktree, switch_branch
@@ -191,6 +191,12 @@ def main():
         help="Days before a worktree is marked for deletion (default: 28)",
     )
     gc_parser.add_argument(
+        '--workers',
+        type=int,
+        default=DEFAULT_GC_WORKERS,
+        help='Maximum parallel timestamp scans (default: %(default)s; 1 for serial)',
+    )
+    gc_parser.add_argument(
         "--clean-cmd",
         type=str,
         default=None,
@@ -210,6 +216,8 @@ def main():
     )
 
     args = parser.parse_args()
+    if args.command == 'gc' and args.workers < 1:
+        gc_parser.error('--workers must be at least 1')
 
     # Handle special commands that don't need a configured git dir
     if args.command == "repo":
@@ -376,4 +384,5 @@ def main():
             clean_cmd=getattr(args, "clean_cmd", None),
             yes=getattr(args, "yes", False),
             plan_only=getattr(args, "plan", False),
+            workers=args.workers,
         )

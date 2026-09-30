@@ -1,11 +1,13 @@
 # gwtlib/gc.py
 """Garbage collection for stale worktrees."""
 
+import multiprocessing
 import os
 import stat
 import subprocess
 import sys
 import time
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from dataclasses import dataclass
 from typing import Callable, List, Optional
 
@@ -64,6 +66,7 @@ def _is_branch_merged_to_main(branch_name: str, git_dir: str) -> bool:
 CLEAN_THRESHOLD_DAYS = 7
 DELETE_THRESHOLD_DAYS = 28
 MERGED_PR_DELETE_THRESHOLD_DAYS = 1
+DEFAULT_GC_WORKERS = min(8, os.cpu_count() or 1)
 
 
 def _get_covered_branch_head(
@@ -202,23 +205,84 @@ def _scan_worktree_mtime(
     return most_recent
 
 
+def _scan_worktree_task(
+    path: str, cutoff: float | None, hints: tuple[str, ...]
+) -> tuple[float | None, str | None]:
+    """Run one scan in isolation and return the path that proved recency."""
+    learned: list[str] = []
+    mtime = _scan_worktree_mtime(path, cutoff, hints, learned.append)
+    return mtime, learned[0] if learned else None
+
+
+def _scan_worktree_batch(
+    tasks: list[tuple[str, float | None]], hints: list[str], workers: int
+):
+    """Yield indexed scan results, sharing learned hints with later submissions.
+
+    Only the parent updates hints. Keep at most workers tasks in flight so new
+    scans see paths learned during this run rather than one initial snapshot.
+    """
+    if workers < 1:
+        raise ValueError('GC workers must be at least 1')
+    workers = min(workers, len(tasks))
+    if workers <= 1:
+        for index, (path, cutoff) in enumerate(tasks):
+            mtime, learned = _scan_worktree_task(path, cutoff, tuple(hints))
+            if learned is not None:
+                remember_gc_path(hints, learned)
+            yield index, mtime
+        return
+
+    with ProcessPoolExecutor(
+        max_workers=workers, mp_context=multiprocessing.get_context('spawn')
+    ) as executor:
+        remaining = iter(enumerate(tasks))
+        pending = {}
+
+        def submit_next() -> None:
+            entry = next(remaining, None)
+            if entry is not None:
+                index, (path, cutoff) = entry
+                future = executor.submit(
+                    _scan_worktree_task, path, cutoff, tuple(hints)
+                )
+                pending[future] = index
+
+        for _ in range(workers):
+            submit_next()
+        while pending:
+            completed, _ = wait(pending, return_when=FIRST_COMPLETED)
+            for future in sorted(completed, key=pending.__getitem__):
+                index = pending.pop(future)
+                mtime, learned = future.result()
+                if learned is not None:
+                    remember_gc_path(hints, learned)
+                submit_next()
+                yield index, mtime
+
+
 def get_worktree_info_list(
     git_dir: str,
     include_main: bool = False,
     recent_days: int | None = None,
     merged_pr_days: int | None = None,
+    workers: int = 1,
 ) -> List[WorktreeInfo]:
-    """Get worktree information, keeping exact ages for actionable trees.
+    """Get information about all worktrees including modification times.
 
     Args:
         git_dir: Path to the git directory.
         include_main: Whether to include the main worktree.
         recent_days: Stop scanning trees with a file newer than this age.
-        merged_pr_days: Use the shorter deletion age for covered merged PRs.
+        merged_pr_days: Use this shorter age for branches covered by a merged PR.
+        workers: Maximum concurrent timestamp scans; Git checks stay sequential.
 
     Returns:
-        Worktrees sorted oldest first, followed by trees proven recent.
+        Worktrees sorted by exact age (oldest first), then any trees proven
+        recent without computing their exact age or checking dirtiness.
     """
+    if workers < 1:
+        raise ValueError('GC workers must be at least 1')
     worktrees = get_worktree_list(git_dir, include_main=include_main)
     main_branch = get_main_branch_name(git_dir) if merged_pr_days is not None else None
     merged_prs = (
@@ -236,17 +300,16 @@ def get_worktree_info_list(
     )
     first_paths = load_gc_paths(git_dir) if recent_cutoff is not None else []
     original_paths = first_paths.copy()
-    info_list = []
-    if HAS_TQDM and tqdm is not None:
-        iterator = tqdm(worktrees, desc="Scanning", file=sys.stderr, unit="worktree")
-    else:
-        iterator = worktrees
 
-    for wt in iterator:
+    prepared = []
+    for wt in worktrees:
         path = wt["path"]
         branch = wt.get("branch", "")
+
+        # Skip if path doesn't exist
         if not os.path.isdir(path):
             continue
+
         pr = merged_prs.get(branch)
         head = (
             _get_covered_branch_head(branch, pr, main_branch, git_dir)
@@ -258,37 +321,50 @@ def get_worktree_info_list(
         cutoff = recent_cutoff
         if pr is not None and recent_days is not None and merged_pr_days is not None:
             cutoff = current_time - min(recent_days, merged_pr_days) * 24 * 60 * 60
-        mtime = _scan_worktree_mtime(
-            path,
-            cutoff,
-            first_paths,
-            lambda relative_path: remember_gc_path(first_paths, relative_path),
+
+        prepared.append((wt, pr, head, cutoff))
+
+    tasks = [(wt['path'], cutoff) for wt, _, _, cutoff in prepared]
+    iterator = _scan_worktree_batch(tasks, first_paths, workers)
+    if HAS_TQDM and tqdm is not None:
+        iterator = tqdm(  # type: ignore[misc]
+            iterator,
+            total=len(tasks),
+            desc='Scanning',
+            file=sys.stderr,
+            unit='worktree',
         )
+
+    info_by_index = {}
+    for index, mtime in iterator:
+        wt, pr, head, cutoff = prepared[index]
+        path, branch = wt['path'], wt.get('branch', '')
         # Empty trees retain the existing .git/directory fallback semantics.
         is_recent = mtime is None or (cutoff is not None and mtime > cutoff)
         age_days = (
             (current_time - mtime) / (24 * 60 * 60) if mtime is not None else None
         )
 
-        info_list.append(
-            WorktreeInfo(
-                path=path,
-                branch=branch,
-                mtime=None if is_recent else mtime,
-                age_days=None if is_recent else age_days,
-                is_dirty=None if is_recent else is_worktree_dirty(path),
-                is_merged=None
-                if is_recent
-                else (pr is not None or _is_branch_merged_to_main(branch, git_dir)),
-                is_main=wt.get("is_main", False),
-                merged_pr=pr,
-                head_oid=head,
-            )
+        info = WorktreeInfo(
+            path=path,
+            branch=branch,
+            mtime=None if is_recent else mtime,
+            age_days=None if is_recent else age_days,
+            is_dirty=None if is_recent else is_worktree_dirty(path),
+            is_merged=None
+            if is_recent
+            else (pr is not None or _is_branch_merged_to_main(branch, git_dir)),
+            is_main=wt.get("is_main", False),
+            merged_pr=pr,
+            head_oid=head,
         )
+        info_by_index[index] = info
 
     if first_paths != original_paths:
         save_gc_paths(git_dir, first_paths)
 
+    # Restore input order before the stable age sort, independent of completion.
+    info_list = [info_by_index[index] for index in range(len(prepared))]
     info_list.sort(
         key=lambda x: -x.age_days if x.age_days is not None else float("inf")
     )
@@ -312,6 +388,7 @@ def create_gc_plan(
     git_dir: str,
     clean_days: int = CLEAN_THRESHOLD_DAYS,
     delete_days: int = DELETE_THRESHOLD_DAYS,
+    workers: int | None = None,
 ) -> GcPlan:
     """Create a garbage collection plan.
 
@@ -319,6 +396,7 @@ def create_gc_plan(
         git_dir: Path to the git directory.
         clean_days: Threshold for cleaning (default 7 days).
         delete_days: Threshold for deletion (default 28 days).
+        workers: Maximum parallel scans; defaults to the bounded GC pool size.
 
     Returns:
         GcPlan with categorized worktrees.
@@ -328,6 +406,7 @@ def create_gc_plan(
         include_main=False,
         recent_days=min(clean_days, delete_days),
         merged_pr_days=MERGED_PR_DELETE_THRESHOLD_DAYS,
+        workers=DEFAULT_GC_WORKERS if workers is None else workers,
     )
 
     to_clean = []
@@ -608,6 +687,7 @@ def gc_worktrees(
     clean_cmd: Optional[str] = None,
     yes: bool = False,
     plan_only: bool = False,
+    workers: int | None = None,
 ) -> None:
     """Run garbage collection on worktrees.
 
@@ -618,9 +698,12 @@ def gc_worktrees(
         clean_cmd: Custom clean command.
         yes: Skip confirmation prompt.
         plan_only: Only print plan, don't execute.
+        workers: Maximum parallel timestamp scans.
     """
     # Create the plan
-    plan = create_gc_plan(git_dir, clean_days=clean_days, delete_days=delete_days)
+    plan = create_gc_plan(
+        git_dir, clean_days=clean_days, delete_days=delete_days, workers=workers
+    )
 
     # Print the plan
     print_plan(plan, git_dir, clean_days=clean_days, delete_days=delete_days)
