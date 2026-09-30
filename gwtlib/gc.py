@@ -17,14 +17,7 @@ except ImportError:
     tqdm = None  # type: ignore
 
 from gwtlib.config import get_repo_config, load_config
-from gwtlib.git_ops import (
-    is_worktree_dirty,
-    run_git_command,
-    run_git_in_worktree,
-    run_git_quiet,
-    run_git_rc,
-)
-from gwtlib.github import MergedPr, get_merged_prs
+from gwtlib.git_ops import is_worktree_dirty, run_git_command, run_git_quiet
 from gwtlib.parsing import get_main_branch_name, get_worktree_list
 from gwtlib.paths import rel_display_path
 from gwtlib.ui import prompt_yes_no
@@ -56,37 +49,14 @@ def _is_branch_merged_to_main(branch_name: str, git_dir: str) -> bool:
 # Default thresholds
 CLEAN_THRESHOLD_DAYS = 7
 DELETE_THRESHOLD_DAYS = 28
-MERGED_PR_DELETE_THRESHOLD_DAYS = 28
-
-
-def _get_covered_branch_head(
-    branch: str, pr: MergedPr, main_branch: str | None, git_dir: str
-) -> str | None:
-    """Return the local tip only if PR history and main cover all its commits."""
-    if not main_branch:
-        return None
-    try:
-        head = run_git_quiet(
-            ['rev-parse', '--verify', f'refs/heads/{branch}^{{commit}}'], git_dir
-        ).stdout.strip()
-        # If the tip is reachable from either history, all its ancestors are too.
-        # Check main first so a missing old PR object cannot defeat that proof.
-        for covered_tip in (f'refs/heads/{main_branch}', pr.head_oid):
-            if (
-                run_git_rc(['merge-base', '--is-ancestor', head, covered_tip], git_dir)
-                == 0
-            ):
-                return head
-        return None
-    except subprocess.CalledProcessError:
-        return None
+MERGED_DELETE_THRESHOLD_DAYS = 28
 
 
 def _resolve_gc_thresholds(
     git_dir: str,
     clean_days: int | None,
     delete_days: int | None,
-    merged_pr_days: int | None,
+    merged_days: int | None,
 ) -> tuple[int, int, int]:
     """Resolve CLI, repository, user, then built-in GC day thresholds."""
     config = load_config()
@@ -102,11 +72,10 @@ def _resolve_gc_thresholds(
         else repo_gc.get(
             'delete_days', user_gc.get('delete_days', DELETE_THRESHOLD_DAYS)
         ),
-        merged_pr_days
-        if merged_pr_days is not None
+        merged_days
+        if merged_days is not None
         else repo_gc.get(
-            'merged_pr_days',
-            user_gc.get('merged_pr_days', MERGED_PR_DELETE_THRESHOLD_DAYS),
+            'merged_days', user_gc.get('merged_days', MERGED_DELETE_THRESHOLD_DAYS)
         ),
     )
 
@@ -122,8 +91,6 @@ class WorktreeInfo:
     is_dirty: bool
     is_merged: bool  # True if branch is merged to main
     is_main: bool = False
-    merged_pr: MergedPr | None = None  # Set only after local commit coverage passes
-    head_oid: str | None = None  # Local tip checked for merged-PR eligibility
 
 
 def get_worktree_mtime(worktree_path: str) -> float:
@@ -179,70 +146,56 @@ def get_worktree_mtime(worktree_path: str) -> float:
 
 
 def get_worktree_info_list(
-    git_dir: str,
-    include_main: bool = False,
-    merged_pr_days: int | None = None,
+    git_dir: str, include_main: bool = False
 ) -> List[WorktreeInfo]:
     """Get information about all worktrees including modification times.
 
     Args:
         git_dir: Path to the git directory.
         include_main: Whether to include the main worktree.
-        merged_pr_days: Use the shorter deletion age for covered merged PRs.
 
     Returns:
         List of WorktreeInfo objects sorted by age (oldest first).
     """
     worktrees = get_worktree_list(git_dir, include_main=include_main)
-    main_branch = get_main_branch_name(git_dir) if merged_pr_days is not None else None
-    merged_prs = (
-        get_merged_prs(
-            [wt['branch'] for wt in worktrees if wt.get('branch')],
-            main_branch,
-            cwd=git_dir,
-        )
-        if main_branch
-        else {}
-    )
     current_time = time.time()
     info_list = []
+
+    # Show progress
     if HAS_TQDM and tqdm is not None:
-        iterator = tqdm(worktrees, desc="Scanning", file=sys.stderr, unit="worktree")
+        iterator = tqdm(  # type: ignore[misc]
+            worktrees,
+            desc="Scanning",
+            file=sys.stderr,
+            unit="worktree",
+        )
     else:
         iterator = worktrees
 
     for wt in iterator:
         path = wt["path"]
         branch = wt.get("branch", "")
+
+        # Skip if path doesn't exist
         if not os.path.isdir(path):
             continue
-        pr = merged_prs.get(branch)
-        head = (
-            _get_covered_branch_head(branch, pr, main_branch, git_dir)
-            if pr is not None
-            else None
-        )
-        if head is None:
-            pr = None
+
         mtime = get_worktree_mtime(path)
-        age_days = (current_time - mtime) / (24 * 60 * 60)
+        age_seconds = current_time - mtime
+        age_days = age_seconds / (24 * 60 * 60)
 
-        info_list.append(
-            WorktreeInfo(
-                path=path,
-                branch=branch,
-                mtime=mtime,
-                age_days=age_days,
-                is_dirty=is_worktree_dirty(path),
-                is_merged=(
-                    pr is not None or _is_branch_merged_to_main(branch, git_dir)
-                ),
-                is_main=wt.get("is_main", False),
-                merged_pr=pr,
-                head_oid=head,
-            )
+        info = WorktreeInfo(
+            path=path,
+            branch=branch,
+            mtime=mtime,
+            age_days=age_days,
+            is_dirty=is_worktree_dirty(path),
+            is_merged=_is_branch_merged_to_main(branch, git_dir),
+            is_main=wt.get("is_main", False),
         )
+        info_list.append(info)
 
+    # Sort by age (oldest first)
     info_list.sort(key=lambda x: -x.age_days)
     return info_list
 
@@ -252,19 +205,17 @@ class GcPlan:
     """Plan for garbage collection."""
 
     to_clean: List[WorktreeInfo]  # Worktrees > clean_days old, to run clean command
-    to_delete: List[
-        WorktreeInfo
-    ]  # Worktrees meeting their deletion age, clean and merged
-    dirty: List[WorktreeInfo]  # Worktrees meeting their deletion age but dirty
+    to_delete: List[WorktreeInfo]  # Worktrees > delete_days old, clean, and merged
+    dirty: List[WorktreeInfo]  # Worktrees > delete_days old but dirty
     unmerged: List[WorktreeInfo]  # Worktrees > delete_days old, clean, but not merged
-    skip: List[WorktreeInfo]  # Worktrees below their action thresholds
+    skip: List[WorktreeInfo]  # Other worktrees (< clean_days old)
 
 
 def create_gc_plan(
     git_dir: str,
     clean_days: int = CLEAN_THRESHOLD_DAYS,
     delete_days: int = DELETE_THRESHOLD_DAYS,
-    merged_pr_days: int = MERGED_PR_DELETE_THRESHOLD_DAYS,
+    merged_days: int = MERGED_DELETE_THRESHOLD_DAYS,
 ) -> GcPlan:
     """Create a garbage collection plan.
 
@@ -272,17 +223,13 @@ def create_gc_plan(
         git_dir: Path to the git directory.
         clean_days: Threshold for cleaning (default 7 days).
         delete_days: Threshold for deletion (default 28 days).
-        merged_pr_days: Deletion age for covered merged PRs (default 28 days),
+        merged_days: Deletion age for merged branches (default 28 days),
             capped by delete_days.
 
     Returns:
         GcPlan with categorized worktrees.
     """
-    worktrees = get_worktree_info_list(
-        git_dir,
-        include_main=False,
-        merged_pr_days=merged_pr_days,
-    )
+    worktrees = get_worktree_info_list(git_dir, include_main=False)
 
     to_clean = []
     to_delete = []
@@ -291,21 +238,16 @@ def create_gc_plan(
     skip = []
 
     for wt in worktrees:
-        threshold = (
-            min(delete_days, merged_pr_days)
-            if wt.merged_pr is not None
-            else delete_days
-        )
+        threshold = min(delete_days, merged_days) if wt.is_merged else delete_days
         if wt.age_days >= threshold:
             # Old enough for deletion
             if wt.is_dirty:
                 dirty.append(wt)
-                if wt.merged_pr is None or wt.age_days >= clean_days:
-                    to_clean.append(wt)
+                if wt.age_days >= delete_days or wt.age_days >= clean_days:
+                    to_clean.append(wt)  # Preserve the ordinary cleaning policy
             elif not wt.is_merged:
                 unmerged.append(wt)
-                if wt.merged_pr is None or wt.age_days >= clean_days:
-                    to_clean.append(wt)
+                to_clean.append(wt)  # Still clean unmerged worktrees
             else:
                 to_delete.append(wt)
         elif wt.age_days >= clean_days:
@@ -342,8 +284,6 @@ def _path_matches_branch(path: str, branch: str, git_dir: str) -> bool:
 def _format_worktree_line(wt: WorktreeInfo, git_dir: str, suffix: str = "") -> str:
     """Format a single worktree as one line."""
     age = format_age(wt.age_days)
-    if wt.merged_pr is not None:
-        suffix = f" [merged PR #{wt.merged_pr.number}]" + suffix
     # Only show path if it doesn't match expected location
     if _path_matches_branch(wt.path, wt.branch, git_dir):
         return f"  {wt.branch}  ({age}){suffix}"
@@ -357,7 +297,7 @@ def print_plan(
     git_dir: str,
     clean_days: int,
     delete_days: int,
-    merged_pr_days: int = MERGED_PR_DELETE_THRESHOLD_DAYS,
+    merged_days: int = MERGED_DELETE_THRESHOLD_DAYS,
 ) -> None:
     """Print the garbage collection plan to stderr."""
     total = (
@@ -397,7 +337,7 @@ def print_plan(
         print(
             f"\nWill delete {len(plan.to_delete)} worktrees eligible by age "
             f"({delete_days}d normally, "
-            f"{min(delete_days, merged_pr_days)}d for covered merged PRs):",
+            f"{min(delete_days, merged_days)}d for merged branches):",
             file=sys.stderr,
         )
         for wt in plan.to_delete:
@@ -406,8 +346,7 @@ def print_plan(
     # Print dirty worktrees that can't be deleted
     if plan.dirty:
         print(
-            f"\nEligible by age but dirty, inspect manually ({len(plan.dirty)}):",
-            file=sys.stderr,
+            f"\nOld but dirty, inspect manually ({len(plan.dirty)}):", file=sys.stderr
         )
         for wt in plan.dirty:
             print(_format_worktree_line(wt, git_dir), file=sys.stderr)
@@ -506,29 +445,6 @@ def execute_gc_plan(
                         file=sys.stderr,
                     )
                     continue
-                if wt.merged_pr is not None:
-                    try:
-                        branch_ref = run_git_in_worktree(
-                            ['symbolic-ref', '--quiet', 'HEAD'], wt.path
-                        ).stdout.strip()
-                    except subprocess.CalledProcessError:
-                        branch_ref = None
-                    if branch_ref != f'refs/heads/{wt.branch}':
-                        print(
-                            "  Skipping: worktree branch changed since planning",
-                            file=sys.stderr,
-                        )
-                        continue
-                    head = _get_covered_branch_head(
-                        wt.branch, wt.merged_pr, get_main_branch_name(git_dir), git_dir
-                    )
-                    if head is None or head != wt.head_oid:
-                        print(
-                            "  Skipping: branch changed or is no longer covered "
-                            "by the merged PR and main since planning",
-                            file=sys.stderr,
-                        )
-                        continue
                 try:
                     # Use git worktree remove directly since we know it's clean
                     run_git_command(
@@ -565,7 +481,7 @@ def gc_worktrees(
     clean_cmd: Optional[str] = None,
     yes: bool = False,
     plan_only: bool = False,
-    merged_pr_days: int | None = None,
+    merged_days: int | None = None,
 ) -> None:
     """Run garbage collection on worktrees.
 
@@ -576,10 +492,10 @@ def gc_worktrees(
         clean_cmd: Custom clean command.
         yes: Skip confirmation prompt.
         plan_only: Only print plan, don't execute.
-        merged_pr_days: Override configured merged-PR deletion age (fallback 28 days).
+        merged_days: Override configured merged-branch deletion age (fallback 28 days).
     """
-    clean_days, delete_days, merged_pr_days = _resolve_gc_thresholds(
-        git_dir, clean_days, delete_days, merged_pr_days
+    clean_days, delete_days, merged_days = _resolve_gc_thresholds(
+        git_dir, clean_days, delete_days, merged_days
     )
 
     # Create the plan
@@ -587,7 +503,7 @@ def gc_worktrees(
         git_dir,
         clean_days=clean_days,
         delete_days=delete_days,
-        merged_pr_days=merged_pr_days,
+        merged_days=merged_days,
     )
 
     # Print the plan
@@ -596,7 +512,7 @@ def gc_worktrees(
         git_dir,
         clean_days=clean_days,
         delete_days=delete_days,
-        merged_pr_days=merged_pr_days,
+        merged_days=merged_days,
     )
 
     # Check if there's anything to do

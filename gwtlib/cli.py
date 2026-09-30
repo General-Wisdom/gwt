@@ -191,10 +191,10 @@ def main():
         help="Days before deletion (default: configured value or 28)",
     )
     gc_parser.add_argument(
-        "--merged-pr-days",
+        "--merged-days",
         type=int,
         default=None,
-        help="Days before deleting covered merged PRs (default: configured value or 28, capped by --delete-days)",
+        help="Days before deleting merged branches (default: configured value or 28, capped by --delete-days)",
     )
     gc_parser.add_argument(
         "--clean-cmd",
@@ -379,7 +379,7 @@ def main():
             git_dir,
             clean_days=args.clean_days,
             delete_days=args.delete_days,
-            merged_pr_days=args.merged_pr_days,
+            merged_days=args.merged_days,
             clean_cmd=getattr(args, "clean_cmd", None),
             yes=getattr(args, "yes", False),
             plan_only=getattr(args, "plan", False),

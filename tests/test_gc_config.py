@@ -8,12 +8,12 @@ from gwtlib import cli, gc
 GIT_DIR = '/example/repo.git'
 
 
-def _assert_thresholds(plan, clean_days, delete_days, merged_pr_days=28):
+def _assert_thresholds(plan, clean_days, delete_days, merged_days=28):
     plan.assert_called_once()
     assert plan.call_args.args == (GIT_DIR,)
     assert plan.call_args.kwargs['clean_days'] == clean_days
     assert plan.call_args.kwargs['delete_days'] == delete_days
-    assert plan.call_args.kwargs['merged_pr_days'] == merged_pr_days
+    assert plan.call_args.kwargs['merged_days'] == merged_days
 
 
 @pytest.fixture
@@ -82,28 +82,28 @@ def plan_mock(monkeypatch):
             [],
             (2, 28),
         ),
-        ({'gc': {'merged_pr_days': 1}}, [], (7, 28, 1)),
+        ({'gc': {'merged_days': 1}}, [], (7, 28, 1)),
         (
             {
-                'gc': {'clean_days': 10, 'merged_pr_days': 3},
-                'repos': {GIT_DIR: {'gc': {'merged_pr_days': 2}}},
+                'gc': {'clean_days': 10, 'merged_days': 3},
+                'repos': {GIT_DIR: {'gc': {'merged_days': 2}}},
             },
             [],
             (10, 28, 2),
         ),
-        ({'repos': {GIT_DIR: {'gc': {'merged_pr_days': 0}}}}, [], (7, 28, 0)),
+        ({'repos': {GIT_DIR: {'gc': {'merged_days': 0}}}}, [], (7, 28, 0)),
         (
             {
-                'gc': {'clean_days': 10, 'delete_days': 35, 'merged_pr_days': 3},
-                'repos': {GIT_DIR: {'gc': {'delete_days': 14, 'merged_pr_days': 2}}},
+                'gc': {'clean_days': 10, 'delete_days': 35, 'merged_days': 3},
+                'repos': {GIT_DIR: {'gc': {'delete_days': 14, 'merged_days': 2}}},
             },
-            ['--merged-pr-days', '0'],
+            ['--merged-days', '0'],
             (10, 14, 0),
         ),
         (
             {
-                'gc': {'merged_pr_days': 3},
-                'repos': {'/another/repo.git': {'gc': {'merged_pr_days': 0}}},
+                'gc': {'merged_days': 3},
+                'repos': {'/another/repo.git': {'gc': {'merged_days': 0}}},
             },
             [],
             (7, 28, 3),
@@ -122,7 +122,7 @@ def test_cli_resolves_each_threshold_independently(
 def test_programmatic_gc_call_uses_config_when_arguments_are_omitted(
     set_config, plan_mock, monkeypatch
 ):
-    set_config({'gc': {'clean_days': 10, 'delete_days': 35, 'merged_pr_days': 3}})
+    set_config({'gc': {'clean_days': 10, 'delete_days': 35, 'merged_days': 3}})
     display = Mock()
     monkeypatch.setattr(gc, 'print_plan', display)
     gc.gc_worktrees(GIT_DIR, plan_only=True)
@@ -132,5 +132,5 @@ def test_programmatic_gc_call_uses_config_when_arguments_are_omitted(
         GIT_DIR,
         clean_days=10,
         delete_days=35,
-        merged_pr_days=3,
+        merged_days=3,
     )
