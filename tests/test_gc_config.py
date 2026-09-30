@@ -8,7 +8,7 @@ from gwtlib import cli, gc
 GIT_DIR = '/example/repo.git'
 
 
-def _assert_thresholds(plan, clean_days, delete_days, merged_pr_days=1):
+def _assert_thresholds(plan, clean_days, delete_days, merged_pr_days=28):
     plan.assert_called_once()
     assert plan.call_args.args == (GIT_DIR,)
     assert plan.call_args.kwargs['clean_days'] == clean_days
@@ -82,7 +82,7 @@ def plan_mock(monkeypatch):
             [],
             (2, 28),
         ),
-        ({'gc': {'merged_pr_days': 3}}, [], (7, 28, 3)),
+        ({'gc': {'merged_pr_days': 1}}, [], (7, 28, 1)),
         (
             {
                 'gc': {'clean_days': 10, 'merged_pr_days': 3},

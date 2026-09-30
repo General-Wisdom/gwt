@@ -56,7 +56,7 @@ def _is_branch_merged_to_main(branch_name: str, git_dir: str) -> bool:
 # Default thresholds
 CLEAN_THRESHOLD_DAYS = 7
 DELETE_THRESHOLD_DAYS = 28
-MERGED_PR_DELETE_THRESHOLD_DAYS = 1
+MERGED_PR_DELETE_THRESHOLD_DAYS = 28
 
 
 def _get_covered_branch_head(
@@ -272,7 +272,7 @@ def create_gc_plan(
         git_dir: Path to the git directory.
         clean_days: Threshold for cleaning (default 7 days).
         delete_days: Threshold for deletion (default 28 days).
-        merged_pr_days: Deletion age for covered merged PRs (default 1 day),
+        merged_pr_days: Deletion age for covered merged PRs (default 28 days),
             capped by delete_days.
 
     Returns:
@@ -576,7 +576,7 @@ def gc_worktrees(
         clean_cmd: Custom clean command.
         yes: Skip confirmation prompt.
         plan_only: Only print plan, don't execute.
-        merged_pr_days: Override configured merged-PR deletion age (fallback 1 day).
+        merged_pr_days: Override configured merged-PR deletion age (fallback 28 days).
     """
     clean_days, delete_days, merged_pr_days = _resolve_gc_thresholds(
         git_dir, clean_days, delete_days, merged_pr_days

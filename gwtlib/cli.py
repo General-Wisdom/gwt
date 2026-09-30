@@ -194,7 +194,7 @@ def main():
         "--merged-pr-days",
         type=int,
         default=None,
-        help="Days before deleting covered merged PRs (default: configured value or 1, capped by --delete-days)",
+        help="Days before deleting covered merged PRs (default: configured value or 28, capped by --delete-days)",
     )
     gc_parser.add_argument(
         "--clean-cmd",

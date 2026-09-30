@@ -65,13 +65,13 @@ def test_covered_pr_uses_one_day_and_preserves_normal_policy(
 ):
     _, _, _ = planning_environment
     lookup = _merged_branches(monkeypatch, ['recent', 'clean'])
-    plan = gc.create_gc_plan('repo.git')
+    plan = gc.create_gc_plan('repo.git', merged_pr_days=1)
     assert [wt.branch for wt in plan.to_delete] == ['delete', 'clean', 'recent']
     assert plan.to_delete[-1].age_days == 1
     assert [wt.branch for wt in plan.to_clean] == ['unmerged', 'dirty', 'boundary']
     assert not plan.skip
     lookup.assert_called_once()
-    gc.print_plan(plan, 'repo.git', 7, 28)
+    gc.print_plan(plan, 'repo.git', 7, 28, merged_pr_days=1)
     output = capsys.readouterr().err
     assert 'merged PR #1' in output
     assert '28d normally, 1d for covered merged PRs' in output
@@ -81,26 +81,27 @@ def test_covered_pr_under_one_day_is_kept(planning_environment, monkeypatch):
     root, dirty, _ = planning_environment
     _file(root / 'recent' / 'src' / 'source.py', NOW - DAY / 2)
     _merged_branches(monkeypatch, ['recent'])
-    plan = gc.create_gc_plan('repo.git')
+    plan = gc.create_gc_plan('repo.git', merged_pr_days=1)
     assert [wt.branch for wt in plan.skip] == ['recent']
     assert 'recent' not in [wt.branch for wt in plan.to_delete]
 
 
-@pytest.mark.parametrize('merged_pr_days', [0, 3, 40])
+@pytest.mark.parametrize('merged_pr_days', [None, 0, 1, 3, 40])
 def test_covered_pr_uses_configured_age_and_normal_age_cap(
     planning_environment, monkeypatch, capsys, merged_pr_days
 ):
     root, _, _ = planning_environment
-    threshold = min(28, merged_pr_days)
+    options = {} if merged_pr_days is None else {'merged_pr_days': merged_pr_days}
+    threshold = 28 if merged_pr_days is None else min(28, merged_pr_days)
     _merged_branches(monkeypatch, ['recent'])
     _file(root / 'recent' / 'src' / 'source.py', NOW - threshold * DAY)
-    plan = gc.create_gc_plan('repo.git', merged_pr_days=merged_pr_days)
+    plan = gc.create_gc_plan('repo.git', **options)
     assert 'recent' in [wt.branch for wt in plan.to_delete]
-    gc.print_plan(plan, 'repo.git', 7, 28, merged_pr_days=merged_pr_days)
+    gc.print_plan(plan, 'repo.git', 7, 28, **options)
     assert f'{threshold}d for covered merged PRs' in capsys.readouterr().err
 
     _file(root / 'recent' / 'src' / 'source.py', NOW - (threshold - 0.5) * DAY)
-    plan = gc.create_gc_plan('repo.git', merged_pr_days=merged_pr_days)
+    plan = gc.create_gc_plan('repo.git', **options)
     assert 'recent' not in [wt.branch for wt in plan.to_delete]
 
 
@@ -109,7 +110,7 @@ def test_new_commits_restore_normal_threshold(planning_environment, monkeypatch)
     _file(root / 'recent' / 'src' / 'source.py', NOW - 2 * DAY)
     _merged_branches(monkeypatch, ['recent'])
     monkeypatch.setattr(gc, '_get_covered_branch_head', lambda *a: None)
-    plan = gc.create_gc_plan('repo.git')
+    plan = gc.create_gc_plan('repo.git', merged_pr_days=1)
     assert [wt.branch for wt in plan.skip] == ['recent']
     assert plan.skip[0].merged_pr is None
 
@@ -120,7 +121,7 @@ def test_dirty_merged_pr_does_not_lower_cleaning_threshold(
     root, _, _ = planning_environment
     _file(root / 'dirty' / 'src' / 'source.py', NOW - 2 * DAY)
     _merged_branches(monkeypatch, ['dirty'])
-    plan = gc.create_gc_plan('repo.git')
+    plan = gc.create_gc_plan('repo.git', merged_pr_days=1)
     assert [wt.branch for wt in plan.dirty] == ['dirty']
     assert 'dirty' not in [wt.branch for wt in plan.to_clean]
     assert 'dirty' not in [wt.branch for wt in plan.to_delete]
