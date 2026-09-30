@@ -36,6 +36,13 @@ def test_cli_repo_sets_env_line(tmp_path):
     assert "GWT_GIT_DIR=" in res.stdout
 
 
+def test_gc_rejects_nonpositive_worker_counts(tmp_path):
+    for workers in ['0', '-1']:
+        result = _run_cli(tmp_path, ['gc', '--plan', '--workers', workers])
+        assert result.returncode == 2
+        assert '--workers must be at least 1' in result.stderr
+
+
 def test_cli_list_branches_only_local(tmp_path, git_env):
     repo = tmp_path / "repo"
     repo.mkdir()
