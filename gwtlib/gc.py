@@ -16,7 +16,7 @@ except ImportError:
     HAS_TQDM = False
     tqdm = None  # type: ignore
 
-from gwtlib.config import get_repo_config
+from gwtlib.config import get_repo_config, load_config
 from gwtlib.git_ops import is_worktree_dirty, run_git_command, run_git_quiet
 from gwtlib.parsing import get_main_branch_name, get_worktree_list
 from gwtlib.paths import rel_display_path
@@ -49,6 +49,39 @@ def _is_branch_merged_to_main(branch_name: str, git_dir: str) -> bool:
 # Default thresholds
 CLEAN_THRESHOLD_DAYS = 7
 DELETE_THRESHOLD_DAYS = 28
+
+
+def _resolve_gc_thresholds(
+    git_dir: str, clean_days: int | None, delete_days: int | None
+) -> tuple[int, int]:
+    """Resolve CLI, repository, user, then built-in GC day thresholds."""
+    config = load_config()
+    user_gc = config.get('gc', {})
+    repos = config.get('repos', {})
+    if not isinstance(repos, dict):
+        raise ValueError('repos must be a TOML table')
+    repo = repos.get(git_dir, {})
+    if not isinstance(repo, dict):
+        raise ValueError(f'repos.{git_dir} must be a TOML table')
+    repo_gc = repo.get('gc', {})
+    for name, table in [('gc', user_gc), (f'repos.{git_dir}.gc', repo_gc)]:
+        if not isinstance(table, dict):
+            raise ValueError(f'{name} must be a TOML table')
+
+    resolved = []
+    for name, explicit, default in [
+        ('clean_days', clean_days, CLEAN_THRESHOLD_DAYS),
+        ('delete_days', delete_days, DELETE_THRESHOLD_DAYS),
+    ]:
+        value = (
+            explicit
+            if explicit is not None
+            else repo_gc.get(name, user_gc.get(name, default))
+        )
+        if type(value) is not int or value < 0:
+            raise ValueError(f'GC {name} must be a nonnegative integer number of days')
+        resolved.append(value)
+    return resolved[0], resolved[1]
 
 
 @dataclass
@@ -434,8 +467,8 @@ def execute_gc_plan(
 
 def gc_worktrees(
     git_dir: str,
-    clean_days: int = CLEAN_THRESHOLD_DAYS,
-    delete_days: int = DELETE_THRESHOLD_DAYS,
+    clean_days: int | None = None,
+    delete_days: int | None = None,
     clean_cmd: Optional[str] = None,
     yes: bool = False,
     plan_only: bool = False,
@@ -444,12 +477,14 @@ def gc_worktrees(
 
     Args:
         git_dir: Path to the git directory.
-        clean_days: Threshold in days for cleaning (default 7).
-        delete_days: Threshold in days for deletion (default 28).
+        clean_days: Override configured cleaning age (fallback 7 days).
+        delete_days: Override configured deletion age (fallback 28 days).
         clean_cmd: Custom clean command.
         yes: Skip confirmation prompt.
         plan_only: Only print plan, don't execute.
     """
+    clean_days, delete_days = _resolve_gc_thresholds(git_dir, clean_days, delete_days)
+
     # Create the plan
     plan = create_gc_plan(git_dir, clean_days=clean_days, delete_days=delete_days)
 
