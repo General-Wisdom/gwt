@@ -2,7 +2,6 @@ import sys
 from unittest.mock import Mock
 
 import pytest
-import tomli_w
 
 from gwtlib import cli, gc
 
@@ -17,16 +16,11 @@ def _assert_thresholds(plan, clean_days, delete_days):
 
 
 @pytest.fixture
-def write_config(tmp_path, monkeypatch):
-    config_home = tmp_path / 'xdg'
-    monkeypatch.setenv('XDG_CONFIG_HOME', str(config_home))
-    path = config_home / 'gwt' / 'config.toml'
-    path.parent.mkdir(parents=True)
+def set_config(monkeypatch):
+    def set_settings(settings):
+        monkeypatch.setattr(gc, 'load_config', lambda: settings)
 
-    def write(settings):
-        path.write_text(tomli_w.dumps(settings))
-
-    return write
+    return set_settings
 
 
 @pytest.fixture
@@ -90,17 +84,17 @@ def plan_mock(monkeypatch):
     ],
 )
 def test_cli_resolves_each_threshold_independently(
-    write_config, plan_mock, monkeypatch, settings, options, expected
+    set_config, plan_mock, monkeypatch, settings, options, expected
 ):
-    write_config(settings)
+    set_config(settings)
     monkeypatch.setattr(sys, 'argv', ['gwt', 'gc', '--plan', *options])
     cli.main()
     _assert_thresholds(plan_mock, *expected)
 
 
 def test_programmatic_gc_call_uses_config_when_arguments_are_omitted(
-    write_config, plan_mock
+    set_config, plan_mock
 ):
-    write_config({'gc': {'clean_days': 10, 'delete_days': 35}})
+    set_config({'gc': {'clean_days': 10, 'delete_days': 35}})
     gc.gc_worktrees(GIT_DIR, plan_only=True)
     _assert_thresholds(plan_mock, 10, 35)
