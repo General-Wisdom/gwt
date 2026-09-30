@@ -56,6 +56,12 @@ An opinionated tool for rapidly working in git worktrees. `gwt` works like `git 
 
   Runs a clean command (e.g. `just clean`) on worktrees older than `--clean-days`
   (7) and removes ones older than `--delete-days` (28) that are clean and merged.
+  Branches with a merged GitHub PR to main use a 1-day deletion threshold when
+  every local commit is covered by that PR's source history or local main.
+  Both thresholds measure the latest file modification, not the PR merge time.
+  PRs are looked up in bulk; failed lookups or commit checks use the normal policy.
+  The cleaning threshold stays unchanged. Git's safe branch deletion may retain
+  a squash-merged branch after its worktree is removed.
   Use `-p`/`--plan` to preview, `-y` to skip the confirmation prompt.
 
 - Switch to a different repo
