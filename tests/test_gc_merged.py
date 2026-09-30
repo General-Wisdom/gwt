@@ -29,7 +29,9 @@ def test_merged_age_uses_existing_eligibility(
     scan = Mock(return_value=[wt])
     monkeypatch.setattr(gc, 'get_worktree_info_list', scan)
     plan = gc.create_gc_plan('repo.git', **options)
-    scan.assert_called_once_with('repo.git', include_main=False)
+    scan.assert_called_once_with(
+        'repo.git', include_main=False, include_merged_prs=True
+    )
     for category in ('to_clean', 'to_delete', 'dirty', 'unmerged', 'skip'):
         assert getattr(plan, category) == ([wt] if category in expected else [])
 

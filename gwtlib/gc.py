@@ -17,7 +17,14 @@ except ImportError:
     tqdm = None  # type: ignore
 
 from gwtlib.config import get_repo_config, load_config
-from gwtlib.git_ops import is_worktree_dirty, run_git_command, run_git_quiet
+from gwtlib.git_ops import (
+    is_worktree_dirty,
+    run_git_command,
+    run_git_in_worktree,
+    run_git_quiet,
+    run_git_rc,
+)
+from gwtlib.github import MergedPr, get_merged_prs
 from gwtlib.parsing import get_main_branch_name, get_worktree_list
 from gwtlib.paths import rel_display_path
 from gwtlib.ui import prompt_yes_no
@@ -50,6 +57,29 @@ def _is_branch_merged_to_main(branch_name: str, git_dir: str) -> bool:
 CLEAN_THRESHOLD_DAYS = 7
 DELETE_THRESHOLD_DAYS = 28
 MERGED_DELETE_THRESHOLD_DAYS = 28
+
+
+def _get_covered_branch_head(
+    branch: str, pr: MergedPr, main_branch: str | None, git_dir: str
+) -> str | None:
+    """Return the local tip only if PR history and main cover all its commits."""
+    if not main_branch:
+        return None
+    try:
+        head = run_git_quiet(
+            ['rev-parse', '--verify', f'refs/heads/{branch}^{{commit}}'], git_dir
+        ).stdout.strip()
+        # If the tip is reachable from either history, all its ancestors are too.
+        # Check main first so a missing old PR object cannot defeat that proof.
+        for covered_tip in (f'refs/heads/{main_branch}', pr.head_oid):
+            if (
+                run_git_rc(['merge-base', '--is-ancestor', head, covered_tip], git_dir)
+                == 0
+            ):
+                return head
+        return None
+    except subprocess.CalledProcessError:
+        return None
 
 
 def _resolve_gc_thresholds(
@@ -89,8 +119,10 @@ class WorktreeInfo:
     mtime: float  # Most recent modification time (Unix timestamp)
     age_days: float  # Age in days since last modification
     is_dirty: bool
-    is_merged: bool  # True if branch is merged to main
+    is_merged: bool  # Local main or a merged PR's source history covers the branch
     is_main: bool = False
+    merged_pr: MergedPr | None = None  # Set only after local commit coverage passes
+    head_oid: str | None = None  # Local tip checked for merged-PR eligibility
 
 
 def get_worktree_mtime(worktree_path: str) -> float:
@@ -146,18 +178,31 @@ def get_worktree_mtime(worktree_path: str) -> float:
 
 
 def get_worktree_info_list(
-    git_dir: str, include_main: bool = False
+    git_dir: str,
+    include_main: bool = False,
+    include_merged_prs: bool = False,
 ) -> List[WorktreeInfo]:
     """Get information about all worktrees including modification times.
 
     Args:
         git_dir: Path to the git directory.
         include_main: Whether to include the main worktree.
+        include_merged_prs: Also recognize covered merged GitHub PRs.
 
     Returns:
         List of WorktreeInfo objects sorted by age (oldest first).
     """
     worktrees = get_worktree_list(git_dir, include_main=include_main)
+    main_branch = get_main_branch_name(git_dir) if include_merged_prs else None
+    merged_prs = (
+        get_merged_prs(
+            [wt['branch'] for wt in worktrees if wt.get('branch')],
+            main_branch,
+            cwd=git_dir,
+        )
+        if main_branch
+        else {}
+    )
     current_time = time.time()
     info_list = []
 
@@ -179,7 +224,14 @@ def get_worktree_info_list(
         # Skip if path doesn't exist
         if not os.path.isdir(path):
             continue
-
+        pr = merged_prs.get(branch)
+        head = (
+            _get_covered_branch_head(branch, pr, main_branch, git_dir)
+            if pr is not None
+            else None
+        )
+        if head is None:
+            pr = None
         mtime = get_worktree_mtime(path)
         age_seconds = current_time - mtime
         age_days = age_seconds / (24 * 60 * 60)
@@ -190,8 +242,10 @@ def get_worktree_info_list(
             mtime=mtime,
             age_days=age_days,
             is_dirty=is_worktree_dirty(path),
-            is_merged=_is_branch_merged_to_main(branch, git_dir),
+            is_merged=pr is not None or _is_branch_merged_to_main(branch, git_dir),
             is_main=wt.get("is_main", False),
+            merged_pr=pr,
+            head_oid=head,
         )
         info_list.append(info)
 
@@ -229,7 +283,11 @@ def create_gc_plan(
     Returns:
         GcPlan with categorized worktrees.
     """
-    worktrees = get_worktree_info_list(git_dir, include_main=False)
+    worktrees = get_worktree_info_list(
+        git_dir,
+        include_main=False,
+        include_merged_prs=True,
+    )
 
     to_clean = []
     to_delete = []
@@ -284,6 +342,8 @@ def _path_matches_branch(path: str, branch: str, git_dir: str) -> bool:
 def _format_worktree_line(wt: WorktreeInfo, git_dir: str, suffix: str = "") -> str:
     """Format a single worktree as one line."""
     age = format_age(wt.age_days)
+    if wt.merged_pr is not None:
+        suffix = f" [merged PR #{wt.merged_pr.number}]" + suffix
     # Only show path if it doesn't match expected location
     if _path_matches_branch(wt.path, wt.branch, git_dir):
         return f"  {wt.branch}  ({age}){suffix}"
@@ -445,6 +505,29 @@ def execute_gc_plan(
                         file=sys.stderr,
                     )
                     continue
+                if wt.merged_pr is not None:
+                    try:
+                        branch_ref = run_git_in_worktree(
+                            ['symbolic-ref', '--quiet', 'HEAD'], wt.path
+                        ).stdout.strip()
+                    except subprocess.CalledProcessError:
+                        branch_ref = None
+                    if branch_ref != f'refs/heads/{wt.branch}':
+                        print(
+                            "  Skipping: worktree branch changed since planning",
+                            file=sys.stderr,
+                        )
+                        continue
+                    head = _get_covered_branch_head(
+                        wt.branch, wt.merged_pr, get_main_branch_name(git_dir), git_dir
+                    )
+                    if head is None or head != wt.head_oid:
+                        print(
+                            "  Skipping: branch changed or is no longer covered "
+                            "by the merged PR and main since planning",
+                            file=sys.stderr,
+                        )
+                        continue
                 try:
                     # Use git worktree remove directly since we know it's clean
                     run_git_command(
