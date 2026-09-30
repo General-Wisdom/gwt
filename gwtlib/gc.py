@@ -2,11 +2,12 @@
 """Garbage collection for stale worktrees."""
 
 import os
+import stat
 import subprocess
 import sys
 import time
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Callable, List, Optional
 
 try:
     from tqdm import tqdm
@@ -16,6 +17,12 @@ except ImportError:
     HAS_TQDM = False
     tqdm = None  # type: ignore
 
+from gwtlib.cache import (
+    load_gc_paths,
+    normalize_gc_path,
+    remember_gc_path,
+    save_gc_paths,
+)
 from gwtlib.config import get_repo_config
 from gwtlib.git_ops import is_worktree_dirty, run_git_command, run_git_quiet
 from gwtlib.parsing import get_main_branch_name, get_worktree_list
@@ -57,10 +64,10 @@ class WorktreeInfo:
 
     path: str
     branch: str
-    mtime: float  # Most recent modification time (Unix timestamp)
-    age_days: float  # Age in days since last modification
-    is_dirty: bool
-    is_merged: bool  # True if branch is merged to main
+    mtime: float | None  # Exact maximum, or None when short-circuited as recent
+    age_days: float | None  # Exact age, or None when short-circuited as recent
+    is_dirty: bool | None  # None when skipped without checking
+    is_merged: bool | None  # None when skipped without checking
     is_main: bool = False
 
 
@@ -79,9 +86,51 @@ def get_worktree_mtime(worktree_path: str) -> float:
     Returns:
         Unix timestamp of most recent modification.
     """
-    most_recent: float | None = None
+    mtime = _scan_worktree_mtime(worktree_path)
+    assert mtime is not None
+    return mtime
+
+
+def _scan_worktree_mtime(
+    worktree_path: str,
+    recent_cutoff: float | None = None,
+    first_paths: list[str] | tuple[str, ...] = (),
+    on_recent: Callable[[str], None] | None = None,
+) -> float | None:
+    """Return the exact maximum, or None upon finding a file newer than cutoff.
+
+    Hints are relative file paths within the normal traversal. Missing or old
+    hints fall through to the walk; directory timestamps never prove recency.
+    on_recent learns only the qualifying file, without doing any extra scanning.
+    """
     worktree_path = os.path.abspath(worktree_path)
 
+    if recent_cutoff is not None:
+        for relative_path in first_paths:
+            normalized = normalize_gc_path(relative_path)
+            if normalized is None:
+                continue
+            parts = normalized.split(os.sep)
+            # os.walk does not traverse directory symlinks. Hints must not
+            # introduce files reachable only through such a directory.
+            if any(
+                os.path.islink(os.path.join(worktree_path, *parts[:i]))
+                for i in range(1, len(parts))
+            ):
+                continue
+            try:
+                metadata = os.stat(os.path.join(worktree_path, *parts))
+                if (
+                    not stat.S_ISDIR(metadata.st_mode)
+                    and metadata.st_mtime > recent_cutoff
+                ):
+                    if on_recent is not None:
+                        on_recent(normalized)
+                    return None
+            except OSError:
+                pass
+
+    most_recent: float | None = None
     for root, dirs, files in os.walk(worktree_path):
         # Skip .git directory
         if ".git" in dirs:
@@ -95,6 +144,10 @@ def get_worktree_mtime(worktree_path: str) -> float:
             try:
                 filepath = os.path.join(root, filename)
                 file_mtime = os.path.getmtime(filepath)
+                if recent_cutoff is not None and file_mtime > recent_cutoff:
+                    if on_recent is not None:
+                        on_recent(os.path.relpath(filepath, worktree_path))
+                    return None
                 most_recent = (
                     file_mtime if most_recent is None else max(most_recent, file_mtime)
                 )
@@ -117,57 +170,71 @@ def get_worktree_mtime(worktree_path: str) -> float:
 
 
 def get_worktree_info_list(
-    git_dir: str, include_main: bool = False
+    git_dir: str,
+    include_main: bool = False,
+    recent_days: int | None = None,
 ) -> List[WorktreeInfo]:
-    """Get information about all worktrees including modification times.
+    """Get worktree information, keeping exact ages for actionable trees.
 
     Args:
         git_dir: Path to the git directory.
         include_main: Whether to include the main worktree.
+        recent_days: Stop scanning trees with a file newer than this age.
 
     Returns:
-        List of WorktreeInfo objects sorted by age (oldest first).
+        Worktrees sorted oldest first, followed by trees proven recent.
     """
     worktrees = get_worktree_list(git_dir, include_main=include_main)
     current_time = time.time()
+    recent_cutoff = (
+        current_time - recent_days * 24 * 60 * 60 if recent_days is not None else None
+    )
+    first_paths = load_gc_paths(git_dir) if recent_cutoff is not None else []
+    original_paths = first_paths.copy()
     info_list = []
-
-    # Show progress
     if HAS_TQDM and tqdm is not None:
-        iterator = tqdm(  # type: ignore[misc]
-            worktrees,
-            desc="Scanning",
-            file=sys.stderr,
-            unit="worktree",
-        )
+        iterator = tqdm(worktrees, desc="Scanning", file=sys.stderr, unit="worktree")
     else:
         iterator = worktrees
 
     for wt in iterator:
         path = wt["path"]
         branch = wt.get("branch", "")
-
-        # Skip if path doesn't exist
         if not os.path.isdir(path):
             continue
-
-        mtime = get_worktree_mtime(path)
-        age_seconds = current_time - mtime
-        age_days = age_seconds / (24 * 60 * 60)
-
-        info = WorktreeInfo(
-            path=path,
-            branch=branch,
-            mtime=mtime,
-            age_days=age_days,
-            is_dirty=is_worktree_dirty(path),
-            is_merged=_is_branch_merged_to_main(branch, git_dir),
-            is_main=wt.get("is_main", False),
+        cutoff = recent_cutoff
+        mtime = _scan_worktree_mtime(
+            path,
+            cutoff,
+            first_paths,
+            lambda relative_path: remember_gc_path(first_paths, relative_path),
         )
-        info_list.append(info)
+        # Empty trees retain the existing .git/directory fallback semantics.
+        is_recent = mtime is None or (cutoff is not None and mtime > cutoff)
+        age_days = (
+            (current_time - mtime) / (24 * 60 * 60) if mtime is not None else None
+        )
 
-    # Sort by age (oldest first)
-    info_list.sort(key=lambda x: -x.age_days)
+        info_list.append(
+            WorktreeInfo(
+                path=path,
+                branch=branch,
+                mtime=None if is_recent else mtime,
+                age_days=None if is_recent else age_days,
+                is_dirty=None if is_recent else is_worktree_dirty(path),
+                is_merged=None
+                if is_recent
+                else _is_branch_merged_to_main(branch, git_dir),
+                is_main=wt.get("is_main", False),
+            )
+        )
+
+    if first_paths != original_paths:
+        save_gc_paths(git_dir, first_paths)
+
+    info_list.sort(
+        key=lambda x: -x.age_days if x.age_days is not None else float("inf")
+    )
     return info_list
 
 
@@ -197,7 +264,9 @@ def create_gc_plan(
     Returns:
         GcPlan with categorized worktrees.
     """
-    worktrees = get_worktree_info_list(git_dir, include_main=False)
+    worktrees = get_worktree_info_list(
+        git_dir, include_main=False, recent_days=min(clean_days, delete_days)
+    )
 
     to_clean = []
     to_delete = []
@@ -206,7 +275,9 @@ def create_gc_plan(
     skip = []
 
     for wt in worktrees:
-        if wt.age_days >= delete_days:
+        if wt.age_days is None:
+            skip.append(wt)
+        elif wt.age_days >= delete_days:
             # Old enough for deletion
             if wt.is_dirty:
                 dirty.append(wt)
@@ -249,6 +320,7 @@ def _path_matches_branch(path: str, branch: str, git_dir: str) -> bool:
 
 def _format_worktree_line(wt: WorktreeInfo, git_dir: str, suffix: str = "") -> str:
     """Format a single worktree as one line."""
+    assert wt.age_days is not None
     age = format_age(wt.age_days)
     # Only show path if it doesn't match expected location
     if _path_matches_branch(wt.path, wt.branch, git_dir):

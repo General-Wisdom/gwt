@@ -212,6 +212,10 @@ post_create_commands = [
 
 The configuration file is created automatically when you first use the `gwt --repo` command. You can then edit it manually to add post-create commands or other settings.
 
+GC automatically learns up to ten relative file paths per repository that most recently proved a worktree was newer than both action thresholds. It checks these paths before walking each worktree and stops at the first recent file; missing or old hints fall back to the normal scan. Actionable worktrees retain exact ages.
+
+These disposable hints are shared across the repository's worktrees and stored in `$XDG_CACHE_HOME/gwt/gc/` (default `~/.cache/gwt/gc/`), with one JSON file per canonical Git directory. Deleting the cache only costs a new scan. Every hint's current timestamp is checked again; cached data never authorizes cleaning or deletion. Cache errors produce a warning and GC continues scanning normally.
+
 
 ## Usage
 
