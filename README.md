@@ -60,6 +60,11 @@ An opinionated tool for rapidly working in git worktrees. `gwt` works like `git 
   (28 by default), capped by the ordinary deletion age. Set it to 1 for earlier
   removal of merged branches. Ages measure the latest file modification,
   including build output. The cleaning threshold stays unchanged.
+  A merged GitHub PR to main also qualifies when every local commit is covered
+  by its frozen source history or local main, supporting squash and rebase merges.
+  PRs are looked up in bulk; failed lookups or commit checks use the local merge
+  check. Git's safe branch deletion may retain a squash-merged branch after its
+  worktree is removed.
   Use `-p`/`--plan` to preview, `-y` to skip the confirmation prompt.
 
 - Switch to a different repo
@@ -224,7 +229,7 @@ merged_days = 0
 
 - `default_repo`: Path to the git directory to use by default when `GWT_GIT_DIR` is not set
 - `gc.clean_days` and `gc.delete_days`: User-wide GC age thresholds in integer days, with built-in defaults of 7 and 28. Zero is allowed. Ages measure the most recent file modification, including build output.
-- `gc.merged_days`: User-wide deletion age for branches merged into local main, defaulting to 28 days and capped by `gc.delete_days`. Set it to 1 for earlier removal, as in the example above. Zero allows immediate removal when the other deletion checks pass.
+- `gc.merged_days`: User-wide deletion age for branches merged into local main or covered by a merged GitHub PR, defaulting to 28 days and capped by `gc.delete_days`. Set it to 1 for earlier removal, as in the example above. Zero allows immediate removal when the other deletion checks pass.
 - `repos.<git-dir>.gc.clean_days`, `repos.<git-dir>.gc.delete_days`, and `repos.<git-dir>.gc.merged_days`: Optional repository overrides. Each setting resolves independently: explicit CLI option, repository override, user-wide value, then built-in default.
 - `repos.<git-dir>.post_create_commands`: List of shell commands to run after creating a new worktree. These commands run in the newly created worktree directory. Post-create commands run whenever `gwt switch` creates a worktree (for local branches, remote branches, or new branches with `-c`).
 
