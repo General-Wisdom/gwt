@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -13,6 +14,25 @@ def _run_cli(tmp_path, args, env=None, input_bytes=None):
     return subprocess.run(cmd, env=e, input=input_bytes, capture_output=True, text=True)
 
 
+def _run_cli_outside(tmp_path, args, env, input_bytes=None):
+    """Run gwt.py from a neutral cwd so auto-detection doesn't interfere."""
+    outside = tmp_path / "outside"
+    outside.mkdir(exist_ok=True)
+    gwt_script = Path(__file__).parent.parent / "gwt.py"
+    original_dir = os.getcwd()
+    try:
+        os.chdir(outside)
+        return subprocess.run(
+            [sys.executable, str(gwt_script)] + args,
+            env=env,
+            input=input_bytes,
+            capture_output=True,
+            text=True,
+        )
+    finally:
+        os.chdir(original_dir)
+
+
 def _init_repo(repo: Path, env: dict):
     subprocess.run(
         ["git", "init", str(repo)], env=env, check=True, capture_output=True, text=True
@@ -24,6 +44,71 @@ def _init_repo(repo: Path, env: dict):
         capture_output=True,
         text=True,
     )
+
+
+def _repo_with_pushed_feature(tmp_path, git_env):
+    """Create repo + local bare origin, push 'feature', and its worktree.
+
+    Returns (git_dir, wt_path, bare_path).
+    """
+    bare = tmp_path / "origin.git"
+    subprocess.run(
+        ["git", "init", "--bare", str(bare)],
+        env=git_env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _init_repo(repo, git_env)
+    subprocess.run(
+        ["git", "-C", str(repo), "remote", "add", "origin", str(bare)],
+        env=git_env,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repo), "branch", "feature"], env=git_env, check=True
+    )
+    subprocess.run(
+        ["git", "-C", str(repo), "push", "origin", "feature"],
+        env=git_env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    import gwt as g
+
+    git_dir = str(repo / ".git")
+    wt_path = os.path.join(g.get_worktree_base(git_dir), "feature")
+    g.create_worktree_for_branch("feature", git_dir, wt_path)
+    return git_dir, wt_path, bare
+
+
+def _branch_exists(git_dir, branch):
+    return (
+        subprocess.run(
+            [
+                "git",
+                "--git-dir=" + git_dir,
+                "rev-parse",
+                "--verify",
+                f"refs/heads/{branch}",
+            ],
+            capture_output=True,
+        ).returncode
+        == 0
+    )
+
+
+def _worktree_registered(git_dir, wt_path):
+    out = subprocess.run(
+        ["git", "--git-dir=" + git_dir, "worktree", "list", "--porcelain"],
+        capture_output=True,
+        text=True,
+    ).stdout
+    return wt_path in out
 
 
 def test_cli_repo_sets_env_line(tmp_path):
@@ -133,6 +218,142 @@ def test_cli_remove_flow(tmp_path, git_env):
         assert branch_check.returncode == 0, "Local branch 'feature' should still exist"
     finally:
         os.chdir(original_dir)
+
+
+def test_switch_recovers_missing_worktree_dir(tmp_path, git_env):
+    git_dir, wt_path, _ = _repo_with_pushed_feature(tmp_path, git_env)
+    shutil.rmtree(wt_path)  # simulate manual deletion outside gwt
+
+    env = {
+        **git_env,
+        "XDG_CONFIG_HOME": str(tmp_path / "xdg"),
+        "GWT_GIT_DIR": git_dir,
+    }
+    res = _run_cli_outside(tmp_path, ["switch", "feature"], env)
+    assert res.returncode == 0
+    assert "missing on disk" in res.stderr
+    assert res.stdout.strip() == f"cd {wt_path}"
+    # Worktree recreated with the branch checked out
+    assert os.path.isdir(wt_path)
+    assert os.path.isfile(os.path.join(wt_path, ".git"))
+    checked_out = subprocess.run(
+        ["git", "-C", wt_path, "rev-parse", "--abbrev-ref", "HEAD"],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert checked_out.stdout.strip() == "feature"
+
+
+def test_switch_recovers_from_remote_when_local_branch_gone(tmp_path, git_env):
+    git_dir, wt_path, _ = _repo_with_pushed_feature(tmp_path, git_env)
+    shutil.rmtree(wt_path)
+    # Drop the local branch too; only origin/feature remains
+    subprocess.run(
+        ["git", "--git-dir=" + git_dir, "worktree", "prune", "--expire", "now"],
+        env=git_env,
+        check=True,
+    )
+    subprocess.run(
+        ["git", "--git-dir=" + git_dir, "branch", "-D", "feature"],
+        env=git_env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert not _branch_exists(git_dir, "feature")
+
+    env = {
+        **git_env,
+        "XDG_CONFIG_HOME": str(tmp_path / "xdg"),
+        "GWT_GIT_DIR": git_dir,
+    }
+    res = _run_cli_outside(tmp_path, ["switch", "feature"], env)
+    assert res.returncode == 0
+    assert res.stdout.strip() == f"cd {wt_path}"
+    assert os.path.isdir(wt_path)
+    checked_out = subprocess.run(
+        ["git", "-C", wt_path, "rev-parse", "--abbrev-ref", "HEAD"],
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert checked_out.stdout.strip() == "feature"
+
+
+def test_rm_local_only_missing_dir_keeps_remote(tmp_path, git_env):
+    git_dir, wt_path, bare = _repo_with_pushed_feature(tmp_path, git_env)
+    shutil.rmtree(wt_path)
+
+    env = {
+        **git_env,
+        "XDG_CONFIG_HOME": str(tmp_path / "xdg"),
+        "GWT_GIT_DIR": git_dir,
+    }
+    res = _run_cli_outside(
+        tmp_path, ["rm", "--local-only", "feature"], env, input_bytes="y\n"
+    )
+    assert res.returncode == 0
+    assert "left untouched" in res.stderr
+    # Registration pruned, local branch deleted, remote branch intact
+    assert not _worktree_registered(git_dir, wt_path)
+    assert not _branch_exists(git_dir, "feature")
+    assert _branch_exists(str(bare), "feature")
+
+
+def test_rm_local_only_missing_dir_keeps_branch_when_declined(tmp_path, git_env):
+    git_dir, wt_path, _ = _repo_with_pushed_feature(tmp_path, git_env)
+    shutil.rmtree(wt_path)
+
+    env = {
+        **git_env,
+        "XDG_CONFIG_HOME": str(tmp_path / "xdg"),
+        "GWT_GIT_DIR": git_dir,
+    }
+    res = _run_cli_outside(
+        tmp_path, ["rm", "--local-only", "feature"], env, input_bytes="n\n"
+    )
+    assert res.returncode == 0
+    # Registration pruned, but the local branch was kept
+    assert not _worktree_registered(git_dir, wt_path)
+    assert _branch_exists(git_dir, "feature")
+
+
+def test_rm_local_only_present_dir(tmp_path, git_env):
+    git_dir, wt_path, bare = _repo_with_pushed_feature(tmp_path, git_env)
+    assert os.path.isdir(wt_path)
+
+    env = {
+        **git_env,
+        "XDG_CONFIG_HOME": str(tmp_path / "xdg"),
+        "GWT_GIT_DIR": git_dir,
+    }
+    res = _run_cli_outside(
+        tmp_path, ["rm", "--local-only", "feature"], env, input_bytes="y\n"
+    )
+    assert res.returncode == 0
+    assert not os.path.exists(wt_path)
+    assert not _branch_exists(git_dir, "feature")
+    # Remote branch untouched
+    assert _branch_exists(str(bare), "feature")
+
+
+def test_rm_default_missing_dir_no_crash(tmp_path, git_env):
+    git_dir, wt_path, bare = _repo_with_pushed_feature(tmp_path, git_env)
+    shutil.rmtree(wt_path)
+
+    env = {
+        **git_env,
+        "XDG_CONFIG_HOME": str(tmp_path / "xdg"),
+        "GWT_GIT_DIR": git_dir,
+    }
+    # Decline remote deletion and local branch deletion
+    res = _run_cli_outside(tmp_path, ["rm", "feature"], env, input_bytes="n\nn\n")
+    assert res.returncode == 0
+    # Stale registration pruned; branches left alone
+    assert not _worktree_registered(git_dir, wt_path)
+    assert _branch_exists(git_dir, "feature")
+    assert _branch_exists(str(bare), "feature")
 
 
 def test_auto_detect_from_repo_root(tmp_path, git_env):

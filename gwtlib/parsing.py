@@ -267,6 +267,9 @@ def get_worktree_list(git_dir, include_main=False, warnings=None):
                 warn(
                     f"Warning: Branch '{branch}' found by git but not in worktree directory"
                 )
+                warn(
+                    f"hint: gwt rm --local-only {branch} (clean up locally)  |  gwt switch {branch} (recreate)"
+                )
             worktrees.append({"path": git_path, "branch": branch})
         elif dir_path:
             # Branch exists in directory but not reported by git
