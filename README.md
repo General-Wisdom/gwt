@@ -50,6 +50,15 @@ An opinionated tool for rapidly working in git worktrees. `gwt` works like `git 
   
   This requires the `gh` CLI for PR status detection.
 
+- Bulk-remove worktrees whose PRs are merged
+
+  `gwt rm --merged`
+
+  Removes worktrees whose GitHub PRs are MERGED, plus their local branches
+  (remote branches are left untouched). Dirty or locked worktrees are skipped
+  and reported. Use `-p`/`--plan` to preview and `-y`/`--yes` to skip the
+  confirmation prompt. Requires the `gh` CLI.
+
 - Garbage-collect stale worktrees
 
   `gwt gc`
@@ -285,6 +294,13 @@ The removal behavior is context-aware:
 - If the PR has been merged, `gwt rm` automatically cleans up the worktree, local branch, and remote branch
 - If the branch was never pushed to a remote, it removes the worktree and prompts about the local branch
 - If the branch is pushed but the PR isn't merged, it warns you and prompts for confirmation before each deletion
+
+Bulk cleanup of merged-PR worktrees (local only, remote branches untouched):
+```
+gwt rm --merged
+gwt rm --merged --plan  # preview only
+gwt rm --merged -y      # skip the confirmation prompt
+```
 
 Fuzzy-find a worktree and switch to it:
 ```

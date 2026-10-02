@@ -39,7 +39,7 @@ function gwt
     if test "$argv[1]" = "remove" -o "$argv[1]" = "rm"
         set -l tmpfile (mktemp)
         __gwt_run $argv | tee $tmpfile
-        set -l exit_code $status
+        set -l exit_code $pipestatus[1]
         set -l last_line (tail -n1 $tmpfile)
         rm $tmpfile
 

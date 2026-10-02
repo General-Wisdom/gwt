@@ -1,6 +1,20 @@
 # gwtlib/git_ops.py
+import os
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
+
+
+def _parallel_map(fn, items):
+    """Run fn over items across a small thread pool (git/subprocess release the GIL)."""
+    items = list(items)
+    if not items:
+        return []
+    if len(items) == 1:
+        return [fn(items[0])]
+    workers = min(16, max(1, (os.cpu_count() or 4)), len(items))
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        return list(ex.map(fn, items))
 
 
 def is_worktree_dirty(worktree_path: str, include_untracked: bool = True) -> bool:
@@ -26,7 +40,12 @@ def is_worktree_dirty(worktree_path: str, include_untracked: bool = True) -> boo
 
 
 def run_git_command(cmd_args, git_dir, capture=True):
-    """Execute git commands with specified git directory."""
+    """Execute git commands with specified git directory.
+
+    With capture=True (default), the command's stdout/stderr are echoed to
+    stderr and the CompletedProcess is returned. With capture=False the
+    command runs attached to the terminal.
+    """
     cmd = ["git", f"--git-dir={git_dir}"] + cmd_args
     if capture:
         result = subprocess.run(cmd, check=True, capture_output=True, text=True)

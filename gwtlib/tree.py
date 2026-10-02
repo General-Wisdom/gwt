@@ -28,10 +28,9 @@ import shutil
 import subprocess
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor
 
 from gwtlib.display import ColorMode
-from gwtlib.git_ops import run_git_quiet, run_git_rc
+from gwtlib.git_ops import _parallel_map, run_git_quiet, run_git_rc
 from gwtlib.github import get_pr_state
 from gwtlib.parsing import parse_worktree_legacy, parse_worktree_porcelain
 from gwtlib.paths import is_path_current_worktree, rel_display_path
@@ -49,18 +48,6 @@ def _rev_parse(git_dir, ref):
 def _has_merge_base(git_dir, a, b):
     """True if a and b share any common ancestor (i.e. related histories)."""
     return run_git_rc(["merge-base", a, b], git_dir) == 0
-
-
-def _parallel_map(fn, items):
-    """Run fn over items across a small thread pool (git/subprocess release the GIL)."""
-    items = list(items)
-    if not items:
-        return []
-    if len(items) == 1:
-        return [fn(items[0])]
-    workers = min(16, max(1, (os.cpu_count() or 4)), len(items))
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        return list(ex.map(fn, items))
 
 
 def _branch_meta(git_dir):

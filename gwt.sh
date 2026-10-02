@@ -133,9 +133,12 @@ gwt() {
     if [[ "$1" == "remove" || "$1" == "rm" ]]; then
         # Run interactively but capture the last line for potential cd command
         # Use a temp file to capture output while still allowing interaction
-        local tmpfile last_line
+        local tmpfile last_line rc
         tmpfile=$(mktemp)
         _gwt_run "$@" | tee "$tmpfile"
+        # zsh stores pipeline statuses in lowercase `pipestatus` (1-indexed);
+        # bash uses `PIPESTATUS`. Prefer zsh's when present.
+        rc=${pipestatus[1]:-${PIPESTATUS[0]}}
         last_line=$(tail -n1 "$tmpfile")
         rm "$tmpfile"
 
@@ -144,6 +147,7 @@ gwt() {
             local dir="${last_line#cd }"
             cd "$dir" || echo "Failed to change directory to $dir"
         fi
+        return "$rc"
     else
         # Run the Python script and capture output for non-interactive commands
         local output

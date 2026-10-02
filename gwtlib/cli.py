@@ -9,10 +9,11 @@ from gwtlib.fuzzy import ACTIONS, DEFAULT_ACTION, fuzzy_pick
 from gwtlib.gc import gc_worktrees
 from gwtlib.resolution import get_git_dir, get_git_dir_with_source
 from gwtlib.tree import show_tree
-from gwtlib.worktrees import remove_worktree, switch_branch
+from gwtlib.worktrees import remove_merged_worktrees, remove_worktree, switch_branch
 
 
 def main():
+    """Parse CLI arguments and dispatch to the matching subcommand."""
     parser = argparse.ArgumentParser(description="Git worktree wrapper")
     # NOTE: When adding new subcommands, also update the completion lists in:
     #   - gwt.sh   (commands="...")
@@ -54,7 +55,26 @@ def main():
         "remove", aliases=["rm"], help="Remove a worktree and optionally its branch"
     )
     remove_parser.add_argument(
-        "branch_name", help="Name of the branch worktree to remove"
+        "branch_name",
+        nargs="?",
+        help="Name of the branch worktree to remove (omit with --merged)",
+    )
+    remove_parser.add_argument(
+        "--merged",
+        action="store_true",
+        help="Bulk-remove worktrees whose GitHub PRs are merged (requires gh)",
+    )
+    remove_parser.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompt (with --merged)",
+    )
+    remove_parser.add_argument(
+        "-p",
+        "--plan",
+        action="store_true",
+        help="Show plan only, don't execute (with --merged)",
     )
 
     # Create a 'list' subcommand that's implicit if no command is provided
@@ -332,7 +352,18 @@ def main():
             guess=getattr(args, "guess", True),
         )
     elif args.command in ["remove", "rm"]:
-        remove_worktree(args.branch_name, git_dir)
+        if args.merged and args.branch_name:
+            parser.error("cannot combine a branch name with --merged")
+        if not args.merged and not args.branch_name:
+            parser.error("a branch name or --merged is required")
+        if not args.merged and (args.plan or args.yes):
+            parser.error("--plan and --yes require --merged")
+        if args.merged:
+            sys.exit(
+                remove_merged_worktrees(git_dir, yes=args.yes, plan_only=args.plan)
+            )
+        else:
+            remove_worktree(args.branch_name, git_dir)
     elif args.command in ["fz", "f"]:
         sys.exit(
             fuzzy_pick(
