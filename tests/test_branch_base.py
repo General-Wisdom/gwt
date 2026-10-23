@@ -66,17 +66,17 @@ def test_new_branch_fetches_origin_with_dirty_main_and_uses_remote_base(
 ):
     repo, updater, _ = _repo_with_origin(tmp_path)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
-    # A stale origin/HEAD must not override the explicit origin/main default.
+    # A stale local origin/HEAD must be refreshed before choosing the base.
     _git(
         repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/old-main"
     )
-    assert get_base_ref(str(repo / ".git")) == "origin/main"
     original_main = _git(repo, "rev-parse", "main").stdout.strip()
     new_tip = _advance_origin(updater, "remote advance")
     (repo / "tracked.txt").write_text("dirty main\n")
 
     result = _run_gwt(tmp_path, repo, "switch", "-c", "feature")
     assert result.returncode == 0, result.stderr
+    assert get_base_ref(str(repo / ".git")) == "origin/main"
     assert _git(repo, "rev-parse", "feature").stdout.strip() == new_tip
     assert _git(repo, "rev-parse", "main").stdout.strip() == original_main
     assert (repo / "tracked.txt").read_text() == "dirty main\n"
@@ -94,6 +94,25 @@ def test_new_branch_fetches_origin_with_dirty_main_and_uses_remote_base(
         if wt.branch == "feature"
     )
     assert feature.is_merged
+
+
+def test_automatic_base_follows_remote_default_even_when_main_exists(tmp_path):
+    repo, updater, origin = _repo_with_origin(tmp_path)
+    _git(updater, "checkout", "-b", "master")
+    _git(updater, "commit", "--allow-empty", "-m", "master work")
+    master_tip = _git(updater, "rev-parse", "HEAD").stdout.strip()
+    _git(updater, "push", "origin", "master")
+    _git(origin, "symbolic-ref", "HEAD", "refs/heads/master")
+
+    result = _run_gwt(tmp_path, repo, "switch", "-c", "from-default")
+    assert result.returncode == 0, result.stderr
+    assert get_base_ref(str(repo / ".git")) == "origin/master"
+    assert _git(repo, "rev-parse", "from-default").stdout.strip() == master_tip
+
+    _git(origin, "symbolic-ref", "HEAD", "refs/heads/main")
+    cached = _run_gwt(tmp_path, repo, "switch", "-c", "cached-default", "--no-fetch")
+    assert cached.returncode == 0, cached.stderr
+    assert _git(repo, "rev-parse", "cached-default").stdout.strip() == master_tip
 
 
 def test_gc_fetches_before_merge_checks_and_fails_safe(tmp_path, capsys):
