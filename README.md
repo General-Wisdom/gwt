@@ -37,7 +37,15 @@ An opinionated tool for rapidly working in git worktrees. `gwt` works like `git 
   
   Additional options:
   - `-C` or `--force-create`: Create branch, resetting if it exists
+  - `--from REF`: Start from a specific branch or commit
+  - `--no-fetch`: Use a cached remote ref without fetching
   - `--no-guess`: Disable remote branch auto-detection
+
+  By default, a new branch starts from the remote default branch (usually
+  `origin/main`). gwt fetches the remote before creating the branch, so a dirty
+  or outdated local `main` does not affect the starting commit. If the fetch
+  fails, creation stops; `--no-fetch` explicitly permits using the cached ref.
+  Repositories without `origin` start from the main worktree's branch.
 
 - Remove a worktree and clean up branches
 
@@ -56,7 +64,7 @@ An opinionated tool for rapidly working in git worktrees. `gwt` works like `git 
 
   Runs a clean command (e.g. `just clean`) on worktrees older than `--clean-days`
   (7) and removes ones older than `--delete-days` (28) that are clean and merged.
-  Branches whose commits are all reachable from local main use `--merged-days`
+  Branches whose commits are all reachable from the repository base ref use `--merged-days`
   (28 by default), capped by the ordinary deletion age. Set it to 1 for earlier
   removal of merged branches. Ages measure the latest file modification,
   including build output. The cleaning threshold stays unchanged.
@@ -200,6 +208,8 @@ merged_days = 1
 
 # Repository-specific configurations
 [repos."/path/to/repo1.git"]
+# Optional starting point for new branches and baseline for tree/gc
+base_ref = "origin/main"
 # Commands to run after creating a new worktree
 # These run in the new worktree directory
 post_create_commands = [
@@ -224,9 +234,10 @@ merged_days = 0
 
 - `default_repo`: Path to the git directory to use by default when `GWT_GIT_DIR` is not set
 - `gc.clean_days` and `gc.delete_days`: User-wide GC age thresholds in integer days, with built-in defaults of 7 and 28. Zero is allowed. Ages measure the most recent file modification, including build output.
-- `gc.merged_days`: User-wide deletion age for branches merged into local main, defaulting to 28 days and capped by `gc.delete_days`. Set it to 1 for earlier removal, as in the example above. Zero allows immediate removal when the other deletion checks pass.
+- `gc.merged_days`: User-wide deletion age for branches merged into the repository base ref, defaulting to 28 days and capped by `gc.delete_days`. Set it to 1 for earlier removal, as in the example above. Zero allows immediate removal when the other deletion checks pass.
 - `repos.<git-dir>.gc.clean_days`, `repos.<git-dir>.gc.delete_days`, and `repos.<git-dir>.gc.merged_days`: Optional repository overrides. Each setting resolves independently: explicit CLI option, repository override, user-wide value, then built-in default.
 - `repos.<git-dir>.post_create_commands`: List of shell commands to run after creating a new worktree. These commands run in the newly created worktree directory. Post-create commands run whenever `gwt switch` creates a worktree (for local branches, remote branches, or new branches with `-c`).
+- `repos.<git-dir>.base_ref`: Base for new branches, `tree`, and merged-branch checks in `gc`. Defaults to `origin/HEAD` when available, otherwise `origin/<main worktree branch>`; without `origin`, uses the main worktree's branch. Remote refs are fetched when creating a branch; `tree` and `gc` read the last fetched ref. Set this for bare repositories whose remote default branch cannot be inferred.
 
 The configuration file is created automatically when you first use the `gwt --repo` command. You can then edit it manually to add post-create commands or other settings.
 
@@ -255,6 +266,7 @@ Create a new branch and worktree:
 ```
 gwt switch -c branch-name
 gwt s -c branch-name
+gwt switch -c stacked-child --from parent-branch
 ```
 
 Force create/reset a branch:
@@ -338,7 +350,7 @@ Show worktrees with commits as a stacked-PR tree:
 gwt tree
 ```
 
-The trunk (the main worktree's branch) is the root, and each worktree that has
+The trunk (the repository base ref) is the root, and each worktree that has
 commits ahead of the trunk is nested under the branch it is stacked on. The tree
 structure itself shows what's stacked on what, so each node shows just two things:
 
@@ -350,7 +362,7 @@ structure itself shows what's stacked on what, so each node shows just two thing
 …followed by the time since its last commit. The current worktree is marked `•`.
 
 ```
-  main (root)              7mo
+  origin/main (root)       7mo
 • ├ feature-a    +3  ✓     2d
   │ └ feature-b  +1  ↻1 ⚠  1d   (needs restack onto feature-a)
   └ feature-c    +1  ↓3 ⚠  8d   (needs rebase onto main)

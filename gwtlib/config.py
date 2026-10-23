@@ -34,7 +34,7 @@ def get_config_path():
 
 def load_config():
     """Load configuration from file with fallback to defaults."""
-    default_config = {"default_repo": None, "repos": {}}
+    default_config = {"default_repo": "", "repos": {}}
     if not HAS_TOML:
         return default_config
     config_path = get_config_path()

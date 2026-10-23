@@ -43,6 +43,17 @@ def main():
         help="Create a new branch, resetting if it exists",
     )
     switch_parser.add_argument(
+        "--from",
+        dest="from_ref",
+        metavar="REF",
+        help="Start a new branch from this ref instead of the repository base",
+    )
+    switch_parser.add_argument(
+        "--no-fetch",
+        action="store_true",
+        help="Use the cached remote ref when creating a branch",
+    )
+    switch_parser.add_argument(
         "--guess",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -109,7 +120,7 @@ def main():
     )
     tree_parser.add_argument(
         "--base",
-        help="Branch to use as the tree root (default: the main worktree's branch)",
+        help="Ref to use as the tree root (default: repository base ref)",
     )
     tree_parser.add_argument(
         "--color",
@@ -216,6 +227,9 @@ def main():
     )
 
     args = parser.parse_args()
+    if args.command in ("switch", "s") and (args.from_ref or args.no_fetch):
+        if not (args.create or args.force_create):
+            parser.error("--from and --no-fetch require -c or -C")
 
     # Handle special commands that don't need a configured git dir
     if args.command == "repo":
@@ -330,6 +344,8 @@ def main():
             create=getattr(args, "create", False),
             force_create=getattr(args, "force_create", False),
             guess=getattr(args, "guess", True),
+            from_ref=getattr(args, "from_ref", None),
+            fetch=not getattr(args, "no_fetch", False),
         )
     elif args.command in ["remove", "rm"]:
         remove_worktree(args.branch_name, git_dir)

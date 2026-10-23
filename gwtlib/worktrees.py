@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from gwtlib.base import BaseRefError, prepare_base_ref
 from gwtlib.branches import (
     branch_exists_locally,
     can_delete_remote_branch,
@@ -65,6 +66,38 @@ def create_tracking_worktree(branch_name, git_dir, remote_ref, worktree_path):
         sys.exit(1)
 
 
+def create_new_worktree(
+    branch_name, git_dir, worktree_path, base_ref=None, force=False, fetch=True
+):
+    """Create or reset a branch from the selected base, then check it out."""
+    try:
+        start_point = prepare_base_ref(git_dir, ref=base_ref, fetch=fetch)
+        option = "-B" if force else "-b"
+        run_git_command(
+            [
+                "worktree",
+                "add",
+                "--no-track",
+                option,
+                branch_name,
+                worktree_path,
+                start_point,
+            ],
+            git_dir,
+        )
+        print(
+            f"Created worktree at {worktree_path} from {start_point}", file=sys.stderr
+        )
+        run_post_create_commands(git_dir, worktree_path, branch_name)
+        print(f"cd {worktree_path}")
+    except BaseRefError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except subprocess.CalledProcessError as e:
+        handle_worktree_error(e, branch_name)
+        sys.exit(1)
+
+
 def handle_worktree_error(e, branch_name):
     """Handle errors from worktree creation."""
     # Show git's actual error message if available
@@ -102,13 +135,21 @@ def run_post_create_commands(git_dir, worktree_path, branch_name):
             os.chdir(current_dir)
 
 
-def switch_branch(branch_name, git_dir, create=False, force_create=False, guess=True):
+def switch_branch(
+    branch_name,
+    git_dir,
+    create=False,
+    force_create=False,
+    guess=True,
+    from_ref=None,
+    fetch=True,
+):
     """Unified switch logic that handles all branch scenarios."""
     worktree_base = get_worktree_base(git_dir)
     worktree_path = os.path.join(worktree_base, branch_name)
 
     # Special handling for switching to main repo
-    if branch_name == get_main_branch_name(git_dir):
+    if not (create or force_create) and branch_name == get_main_branch_name(git_dir):
         main_path = get_main_worktree_path(git_dir)
         if main_path:
             print(f"cd {main_path}")
@@ -118,29 +159,41 @@ def switch_branch(branch_name, git_dir, create=False, force_create=False, guess=
     worktrees = get_worktree_list(git_dir, include_main=True)
     for wt in worktrees:
         if wt["branch"] == branch_name:
+            if create:
+                print(f"Error: Branch '{branch_name}' already exists", file=sys.stderr)
+                print("Use -C to force create", file=sys.stderr)
+                sys.exit(1)
+            if force_create:
+                print(
+                    f"Error: Branch '{branch_name}' is checked out in a worktree; "
+                    "cannot reset it with -C.",
+                    file=sys.stderr,
+                )
+                sys.exit(1)
             print(f"cd {wt['path']}")
             return
 
     # Handle create flags
     if force_create:
-        # Force create new branch
-        try:
-            run_git_command(["branch", "-f", branch_name], git_dir)
-        except subprocess.CalledProcessError:
-            run_git_command(["branch", branch_name], git_dir)
-        create_worktree_for_branch(branch_name, git_dir, worktree_path)
+        create_new_worktree(
+            branch_name,
+            git_dir,
+            worktree_path,
+            base_ref=from_ref,
+            force=True,
+            fetch=fetch,
+        )
         return
 
     if create:
-        # Create new branch
-        try:
-            run_git_command(["branch", branch_name], git_dir)
-            create_worktree_for_branch(branch_name, git_dir, worktree_path)
-            return
-        except subprocess.CalledProcessError:
-            print(f"Error: Branch '{branch_name}' already exists", file=sys.stderr)
-            print("Use -C to force create", file=sys.stderr)
-            sys.exit(1)
+        create_new_worktree(
+            branch_name,
+            git_dir,
+            worktree_path,
+            base_ref=from_ref,
+            fetch=fetch,
+        )
+        return
 
     # Check if local branch exists - create worktree for it
     # (this also runs any configured post-create commands)

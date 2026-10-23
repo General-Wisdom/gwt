@@ -16,27 +16,28 @@ except ImportError:
     HAS_TQDM = False
     tqdm = None  # type: ignore
 
+from gwtlib.base import BaseRefError, prepare_base_ref
 from gwtlib.config import get_repo_config, load_config
 from gwtlib.git_ops import is_worktree_dirty, run_git_command, run_git_quiet
-from gwtlib.parsing import get_main_branch_name, get_worktree_list
+from gwtlib.parsing import get_worktree_list
 from gwtlib.paths import rel_display_path
 from gwtlib.ui import prompt_yes_no
 
 
-def _is_branch_merged_to_main(branch_name: str, git_dir: str) -> bool:
-    """Check if a branch has been merged to main.
+def _is_branch_merged_to_base(
+    branch_name: str, git_dir: str, base_ref: str | None
+) -> bool:
+    """Check if all branch commits are reachable from the repository base.
 
-    Returns True if all commits in the branch are also in main.
+    An unavailable base is treated as unmerged to keep cleanup conservative.
     """
-    main_branch = get_main_branch_name(git_dir)
-    if not main_branch:
-        # Can't determine main branch, assume not merged to be safe
+    if not base_ref:
         return False
 
     try:
-        # Check if there are any commits in branch that aren't in main
+        # Check if there are any commits in branch that aren't in the base
         result = run_git_quiet(
-            ["log", f"{main_branch}..{branch_name}", "--oneline"],
+            ["log", f"{base_ref}..{branch_name}", "--oneline"],
             git_dir,
         )
         # If no output, branch is fully merged
@@ -160,6 +161,11 @@ def get_worktree_info_list(
     worktrees = get_worktree_list(git_dir, include_main=include_main)
     current_time = time.time()
     info_list = []
+    try:
+        base_ref = prepare_base_ref(git_dir, fetch=False)
+    except BaseRefError as e:
+        print(f"Warning: {e}; treating branches as unmerged.", file=sys.stderr)
+        base_ref = None
 
     # Show progress
     if HAS_TQDM and tqdm is not None:
@@ -190,7 +196,7 @@ def get_worktree_info_list(
             mtime=mtime,
             age_days=age_days,
             is_dirty=is_worktree_dirty(path),
-            is_merged=_is_branch_merged_to_main(branch, git_dir),
+            is_merged=_is_branch_merged_to_base(branch, git_dir, base_ref),
             is_main=wt.get("is_main", False),
         )
         info_list.append(info)
