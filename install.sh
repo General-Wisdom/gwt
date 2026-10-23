@@ -36,34 +36,31 @@ chmod +x "$BIN_DIR/gwt.sh" "$BIN_DIR/gwt.fish"
 
 echo
 echo "Installation complete. Add the following to your shell setup where appropriate:"
-case "$(basename "${SHELL:-}")" in
-    fish)
-        echo '  source "$HOME/.local/bin/gwt.fish"'
-        echo '  set -gx GWT_GIT_DIR /path/to/repo.git  # Optional default repository'
-        ;;
-    bash|zsh)
-        echo '  source "$HOME/.local/bin/gwt.sh"'
-        echo '  export GWT_GIT_DIR=/path/to/repo.git  # Optional default repository'
-        ;;
-    *)
-        echo '  Bash/Zsh: source "$HOME/.local/bin/gwt.sh"'
-        echo '  Bash/Zsh: export GWT_GIT_DIR=/path/to/repo.git  # Optional'
-        echo '  Fish: source "$HOME/.local/bin/gwt.fish"'
-        echo '  Fish: set -gx GWT_GIT_DIR /path/to/repo.git  # Optional'
-        ;;
-esac
+echo "Bash/Zsh:"
+if [[ -n "${GWT_APPDIR:-}${XDG_DATA_HOME:-}" ]]; then
+    # These escapes keep a custom path literal when pasted into either shell.
+    appdir_quoted=${APPDIR//\/\\}
+    appdir_quoted=${appdir_quoted//\"/\\\"}
+    appdir_quoted=${appdir_quoted//\$/\\$}
+    appdir_quoted=${appdir_quoted//\`/\\\`}
+    printf '  export GWT_APPDIR="%s"\n' "$appdir_quoted"
+fi
+echo '  source "$HOME/.local/bin/gwt.sh"'
+echo '  export GWT_GIT_DIR=/path/to/repo.git  # Optional default repository'
+echo "Fish:"
+if [[ -n "${GWT_APPDIR:-}${XDG_DATA_HOME:-}" ]]; then
+    printf '  set -gx GWT_APPDIR "%s"\n' "$appdir_quoted"
+fi
+echo '  source "$HOME/.local/bin/gwt.fish"'
+echo '  set -gx GWT_GIT_DIR /path/to/repo.git  # Optional default repository'
 
 case ":$PATH:" in
     *":$BIN_DIR:"*) ;;
     *)
         echo
         echo "Your PATH does not include $BIN_DIR. Add it in your shell setup if needed:"
-        case "$(basename "${SHELL:-}")" in
-            fish) echo '  fish_add_path "$HOME/.local/bin"' ;;
-            bash|zsh) echo '  export PATH="$HOME/.local/bin:$PATH"' ;;
-            *) echo '  Bash/Zsh: export PATH="$HOME/.local/bin:$PATH"'
-               echo '  Fish: fish_add_path "$HOME/.local/bin"' ;;
-        esac
+        echo '  Bash/Zsh: export PATH="$HOME/.local/bin:$PATH"'
+        echo '  Fish: fish_add_path "$HOME/.local/bin"'
         ;;
 esac
 

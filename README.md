@@ -117,6 +117,11 @@ This installs `gwt.py` and `gwtlib/` to `$GWT_APPDIR`, `$XDG_DATA_HOME/gwt`,
 or `~/.local/share/gwt`, and installs both shell integration files to
 `~/.local/bin`. The script prints setup instructions; it does not edit shell
 config files, create a repository config, or prompt for a default repository.
+The script shows instructions for both Bash/Zsh and Fish; use the section for
+the shell you configure, regardless of the `$SHELL` value during installation.
+If you install with `GWT_APPDIR` or `XDG_DATA_HOME` set, keep the printed
+`GWT_APPDIR` setting in your shell setup before sourcing the integration file.
+This lets gwt find the installed Python sources in the same location.
 
 Add the appropriate integration file to your shell setup if you want `gwt` to
 change the current directory. Set `GWT_GIT_DIR` there too if you want a default
