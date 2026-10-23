@@ -237,7 +237,7 @@ merged_days = 0
 - `gc.merged_days`: User-wide deletion age for branches merged into the repository base ref, defaulting to 28 days and capped by `gc.delete_days`. Set it to 1 for earlier removal, as in the example above. Zero allows immediate removal when the other deletion checks pass.
 - `repos.<git-dir>.gc.clean_days`, `repos.<git-dir>.gc.delete_days`, and `repos.<git-dir>.gc.merged_days`: Optional repository overrides. Each setting resolves independently: explicit CLI option, repository override, user-wide value, then built-in default.
 - `repos.<git-dir>.post_create_commands`: List of shell commands to run after creating a new worktree. These commands run in the newly created worktree directory. Post-create commands run whenever `gwt switch` creates a worktree (for local branches, remote branches, or new branches with `-c`).
-- `repos.<git-dir>.base_ref`: Base for new branches, `tree`, and merged-branch checks in `gc`. Defaults to `origin/HEAD` when available, otherwise `origin/<main worktree branch>`; without `origin`, uses the main worktree's branch. Remote refs are fetched when creating a branch; `tree` and `gc` read the last fetched ref. Set this for bare repositories whose remote default branch cannot be inferred.
+- `repos.<git-dir>.base_ref`: Base for new branches, `tree`, and merged-branch checks in `gc`. Defaults to `origin/main` when `origin` exists; without `origin`, uses the main worktree's branch. Set it to another ref if your trunk is elsewhere. New branch creation and `gc` fetch remote bases; `tree` reads the last fetched ref.
 
 The configuration file is created automatically when you first use the `gwt --repo` command. You can then edit it manually to add post-create commands or other settings.
 

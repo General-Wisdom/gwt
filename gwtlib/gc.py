@@ -162,7 +162,7 @@ def get_worktree_info_list(
     current_time = time.time()
     info_list = []
     try:
-        base_ref = prepare_base_ref(git_dir, fetch=False)
+        base_ref = prepare_base_ref(git_dir, fetch=True)
     except BaseRefError as e:
         print(f"Warning: {e}; treating branches as unmerged.", file=sys.stderr)
         base_ref = None

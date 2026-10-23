@@ -16,30 +16,16 @@ def _remote_names(git_dir):
 
 
 def get_base_ref(git_dir):
-    """Use a configured base, or the origin default branch when available.
+    """Use a configured base, or origin/main when origin is available.
 
-    A repository without origin retains the previous local-HEAD behavior.
+    A repository without origin retains the previous main-worktree behavior.
     """
     configured = load_config().get("repos", {}).get(git_dir, {}).get("base_ref")
     if configured:
         return configured
 
     if "origin" in _remote_names(git_dir):
-        try:
-            ref = run_git_quiet(
-                ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
-                git_dir,
-            ).stdout.strip()
-            if ref:
-                return ref
-        except subprocess.CalledProcessError:
-            pass
-        main_branch = get_main_branch_name(git_dir)
-        if main_branch:
-            return f"origin/{main_branch}"
-        raise BaseRefError(
-            "Could not determine origin's default branch; set repos.<git-dir>.base_ref."
-        )
+        return "origin/main"
 
     main_branch = get_main_branch_name(git_dir)
     if not main_branch:
@@ -66,10 +52,7 @@ def prepare_base_ref(git_dir, ref=None, fetch=True):
             run_git_quiet(["fetch", remote], git_dir)
         except subprocess.CalledProcessError as e:
             detail = (e.stderr or "").strip() or str(e)
-            raise BaseRefError(
-                f"Could not fetch '{remote}': {detail}. "
-                "Use --no-fetch to explicitly use cached refs."
-            ) from e
+            raise BaseRefError(f"Could not fetch '{remote}': {detail}.") from e
     try:
         run_git_quiet(["rev-parse", "--verify", f"{base_ref}^{{commit}}"], git_dir)
     except subprocess.CalledProcessError as e:

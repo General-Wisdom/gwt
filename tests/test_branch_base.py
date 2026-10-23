@@ -3,6 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from gwtlib.base import get_base_ref
 from gwtlib.gc import get_worktree_info_list
 from gwtlib.tree import build_stack_tree
 
@@ -60,8 +61,16 @@ def _run_gwt(tmp_path, repo, *args):
     )
 
 
-def test_new_branch_fetches_origin_with_dirty_main_and_uses_remote_base(tmp_path):
+def test_new_branch_fetches_origin_with_dirty_main_and_uses_remote_base(
+    tmp_path, monkeypatch
+):
     repo, updater, _ = _repo_with_origin(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    # A stale origin/HEAD must not override the explicit origin/main default.
+    _git(
+        repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/old-main"
+    )
+    assert get_base_ref(str(repo / ".git")) == "origin/main"
     original_main = _git(repo, "rev-parse", "main").stdout.strip()
     new_tip = _advance_origin(updater, "remote advance")
     (repo / "tracked.txt").write_text("dirty main\n")
@@ -85,6 +94,34 @@ def test_new_branch_fetches_origin_with_dirty_main_and_uses_remote_base(tmp_path
         if wt.branch == "feature"
     )
     assert feature.is_merged
+
+
+def test_gc_fetches_before_merge_checks_and_fails_safe(tmp_path, capsys):
+    repo, updater, origin = _repo_with_origin(tmp_path)
+    result = _run_gwt(tmp_path, repo, "switch", "-c", "feature")
+    assert result.returncode == 0, result.stderr
+    old_tip = _git(repo, "rev-parse", "origin/main").stdout.strip()
+
+    _git(repo, "remote", "set-url", "origin", str(origin) + ".missing")
+    feature = next(
+        wt
+        for wt in get_worktree_info_list(str(repo / ".git"))
+        if wt.branch == "feature"
+    )
+    assert not feature.is_merged
+    assert "Could not fetch 'origin'" in capsys.readouterr().err
+
+    _git(repo, "remote", "set-url", "origin", str(origin))
+    _git(updater, "checkout", "--orphan", "replacement")
+    _git(updater, "commit", "--allow-empty", "-m", "replacement root")
+    _git(updater, "push", "--force", "origin", "HEAD:main")
+    feature = next(
+        wt
+        for wt in get_worktree_info_list(str(repo / ".git"))
+        if wt.branch == "feature"
+    )
+    assert _git(repo, "rev-parse", "origin/main").stdout.strip() != old_tip
+    assert not feature.is_merged
 
 
 def test_configured_base_override_and_offline_mode(tmp_path):
@@ -141,7 +178,6 @@ def test_configured_base_override_and_offline_mode(tmp_path):
     )
     assert result.returncode != 0
     assert "Could not fetch 'origin'" in result.stderr
-    assert "--no-fetch" in result.stderr
     assert (
         _git(
             repo, "show-ref", "--verify", "refs/heads/must-fail", check=False
