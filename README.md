@@ -74,8 +74,8 @@ An opinionated tool for rapidly working in git worktrees. `gwt` works like `git 
 
   `gwt --repo /some/other/repo.git`
 
-The "current repo" is stored in `$GWT_GIT_DIR` and a default value
-can be initialized in your `.bashrc`.
+Outside a repository, set `GWT_GIT_DIR` or configure `default_repo` to choose a
+default repository. Inside a repository, gwt detects it automatically.
 
 ### TODO
 
@@ -113,26 +113,38 @@ Run the installation script:
 ./install.sh
 ```
 
-This will:
-1. Install gwt.py and gwtlib/ to your AppDir: `$XDG_DATA_HOME/gwt` or `~/.local/share/gwt`
-2. Install shell wrappers to `~/.local/bin` and add sourcing lines to your shell config
-3. Ask for an optional default GWT_GIT_DIR
+This installs `gwt.py` and `gwtlib/` to `$GWT_APPDIR`, `$XDG_DATA_HOME/gwt`,
+or `~/.local/share/gwt`, and installs both shell integration files to
+`~/.local/bin`. The script prints setup instructions; it does not edit shell
+config files, create a repository config, or prompt for a default repository.
+
+Add the appropriate integration file to your shell setup if you want `gwt` to
+change the current directory. Set `GWT_GIT_DIR` there too if you want a default
+repository outside a Git checkout:
+
+```bash
+source "$HOME/.local/bin/gwt.sh"  # Bash or Zsh
+export GWT_GIT_DIR=/path/to/your/repo.git  # Optional
+```
+
+```fish
+source "$HOME/.local/bin/gwt.fish"
+set -gx GWT_GIT_DIR /path/to/your/repo.git  # Optional
+```
+
+If `~/.local/bin` is absent from your `PATH`, add it in your shell setup. Open
+a new shell or source the integration file to use gwt immediately.
 
 **uv vs python3:**
 - gwt prefers running via `uv run --script` for isolation and speed.
-- If uv is not available, gwt falls back to `python3`. On Python <3.11 you may need:
-  `pip install tomli tomli-w`.
-
-Then reload your shell:
-```bash
-source ~/.bashrc
-```
+- If uv is not available, gwt falls back to Python 3.10+ with the dependencies
+  listed in `gwt.py` installed in that Python environment.
 
 ### Manual Installation
 
 If you prefer to install manually:
 
-1. Make sure Python 3.11+ is installed (or Python 3.6+ with `tomli` and `tomli-w` packages)
+1. Make sure uv or Python 3.10+ with the dependencies listed in `gwt.py` is installed.
 
 2. Create AppDir and copy Python sources:
    ```bash
@@ -168,9 +180,10 @@ If you prefer to install manually:
    ```
 
 **Uninstall:**
-- Remove AppDir: `rm -rf "${XDG_DATA_HOME:-$HOME/.local/share}/gwt"`
+- Remove the AppDir used at install time (`$GWT_APPDIR` if set, otherwise
+  `${XDG_DATA_HOME:-$HOME/.local/share}/gwt`)
 - Remove wrappers: `rm -f ~/.local/bin/gwt.{sh,fish}`
-- Remove sourcing lines from your shell config
+- Remove any sourcing lines and `GWT_GIT_DIR` setting that you added to your shell config
 
 ## Configuration
 
@@ -389,4 +402,6 @@ Options:
 
 ## How it works
 
-The installation combines a Python script (`gwt.py`) that handles the git operations with a Bash script (`gwt.sh`) that handles directory changing and tab completion. This approach minimizes what needs to be added to `.bashrc` while maintaining full functionality.
+The installation combines a Python script (`gwt.py`) that handles the git
+operations with shell functions (`gwt.sh` and `gwt.fish`) that handle directory
+changing and tab completion. You choose where to source the shell integration.
