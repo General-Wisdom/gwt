@@ -1,7 +1,7 @@
 # gwtlib/tree.py
 """Render worktrees that have commits as a stacked-PR tree.
 
-The trunk (the main worktree's branch, or an explicit --base) is the root.
+The trunk (the repository base ref, or an explicit --base) is the root.
 Every other worktree whose branch has commits not in the trunk becomes a node,
 attached under its *parent* branch -- the closest branch it is stacked on top of.
 
@@ -30,6 +30,7 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+from gwtlib.base import BaseRefError, get_base_ref
 from gwtlib.display import ColorMode
 from gwtlib.git_ops import run_git_quiet, run_git_rc
 from gwtlib.github import get_pr_state
@@ -138,7 +139,7 @@ def build_stack_tree(git_dir, base=None):
     """Build the stacked-PR tree.
 
     Returns (root_node, notes). root_node is None (with an explanatory note) if the
-    trunk branch cannot be determined or resolved. notes is a list of advisory strings.
+    trunk ref cannot be determined or resolved. notes is a list of advisory strings.
     """
     notes = []
 
@@ -149,22 +150,17 @@ def build_stack_tree(git_dir, base=None):
     entries = entries or []
 
     wt_by_branch: dict[str, dict] = {}
-    main_branch = None
     for e in entries:
         b = e.get("branch")
         if not b or e.get("detached") or b == "(detached)":
             continue
         wt_by_branch.setdefault(b, e)
-        if e.get("is_main") and main_branch is None:
-            main_branch = b
 
     # Determine the trunk/root branch.
-    root_branch = base or main_branch
-    if not root_branch:
-        return None, [
-            "Could not determine the trunk branch (main worktree is detached?); "
-            "pass --base BRANCH."
-        ]
+    try:
+        root_branch = base or get_base_ref(git_dir)
+    except BaseRefError as e:
+        return None, [str(e)]
 
     # Branch tips + ages for every local head in a single for-each-ref call.
     meta = _branch_meta(git_dir)

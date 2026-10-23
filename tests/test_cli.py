@@ -5,12 +5,14 @@ from pathlib import Path
 
 
 def _run_cli(tmp_path, args, env=None, input_bytes=None):
-    cmd = [sys.executable, "gwt.py"] + args
+    cmd = [sys.executable, str(Path(__file__).parent.parent / "gwt.py")] + args
     e = os.environ.copy()
     e["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
     if env:
         e.update(env)
-    return subprocess.run(cmd, env=e, input=input_bytes, capture_output=True, text=True)
+    return subprocess.run(
+        cmd, cwd=tmp_path, env=e, input=input_bytes, capture_output=True, text=True
+    )
 
 
 def _init_repo(repo: Path, env: dict):
