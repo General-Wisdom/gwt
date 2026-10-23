@@ -1,6 +1,7 @@
 """Check that installation leaves user shell settings under user control."""
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -92,7 +93,7 @@ def test_install_prints_setup_without_editing_shell_files(
 def test_custom_appdir_setup_uses_installed_location(tmp_path):
     home = tmp_path / "home"
     home.mkdir()
-    appdir = tmp_path / 'custom $data "quoted"'
+    appdir = tmp_path / 'custom $data "quoted" `tick` \\ slash'
     env = {
         **os.environ,
         "HOME": str(home),
@@ -122,10 +123,9 @@ def test_custom_appdir_setup_uses_installed_location(tmp_path):
         for line in result.stdout.splitlines()
         if line.startswith("  set -gx GWT_APPDIR ")
     )
-    assert '\\$data \\"quoted\\"' in bash_setting
-    assert fish_setting == bash_setting.replace(
-        "export GWT_APPDIR=", "set -gx GWT_APPDIR "
-    )
+    assert r"\`tick\`" in bash_setting
+    assert "`tick`" in fish_setting
+    assert r"\`" not in fish_setting
 
     # The printed setting must work after the install-time override is gone.
     env.pop("GWT_APPDIR")
@@ -142,3 +142,18 @@ def test_custom_appdir_setup_uses_installed_location(tmp_path):
         check=True,
     )
     assert check.stdout == str(appdir)
+
+    if fish := shutil.which("fish"):
+        check = subprocess.run(
+            [
+                fish,
+                "-c",
+                f'{fish_setting}\nsource "$HOME/.local/bin/gwt.fish"\nprintf "%s" "$GWT_APPDIR"',
+            ],
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=30,
+            check=True,
+        )
+        assert check.stdout == str(appdir)

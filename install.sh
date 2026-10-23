@@ -38,12 +38,13 @@ echo
 echo "Installation complete. Add the following to your shell setup where appropriate:"
 echo "Bash/Zsh:"
 if [[ -n "${GWT_APPDIR:-}${XDG_DATA_HOME:-}" ]]; then
-    # These escapes keep a custom path literal when pasted into either shell.
+    # Escape characters expanded in quoted strings by both shells.
     appdir_quoted=${APPDIR//\/\\}
     appdir_quoted=${appdir_quoted//\"/\\\"}
     appdir_quoted=${appdir_quoted//\$/\\$}
-    appdir_quoted=${appdir_quoted//\`/\\\`}
-    printf '  export GWT_APPDIR="%s"\n' "$appdir_quoted"
+    # Bash also expands backticks; Fish treats them as ordinary characters.
+    bash_appdir_quoted=${appdir_quoted//\`/\\\`}
+    printf '  export GWT_APPDIR="%s"\n' "$bash_appdir_quoted"
 fi
 echo '  source "$HOME/.local/bin/gwt.sh"'
 echo '  export GWT_GIT_DIR=/path/to/repo.git  # Optional default repository'
